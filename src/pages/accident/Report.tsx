@@ -20,6 +20,7 @@ import type { Accident, LossItem, ThirdParty, Claim, AuditNode } from '../../typ
 const Report = () => {
   const { accidents, flightTasks, addAccident, addClaim, claims } = useAppStore();
   const [showAddReport, setShowAddReport] = useState(false);
+  const [showDetail, setShowDetail] = useState<string | null>(null);
   const [lossItems, setLossItems] = useState<any[]>([]);
   const [thirdParties, setThirdParties] = useState<any[]>([]);
   const [formData, setFormData] = useState({
@@ -31,6 +32,19 @@ const Report = () => {
     description: ''
   });
   const [submitting, setSubmitting] = useState(false);
+
+  const selectedAccident = accidents.find(a => a.id === showDetail);
+
+  const lossTypeLabels: Record<string, string> = {
+    drone: '无人机',
+    payload: '载荷设备',
+    other: '其他'
+  };
+
+  const thirdPartyTypeLabels: Record<string, string> = {
+    property: '财产损失',
+    person: '人员伤亡'
+  };
 
   const addLossItem = () => {
     setLossItems([...lossItems, { 
@@ -212,7 +226,10 @@ const Report = () => {
                     <StatusBadge status={accident.status} />
                   </td>
                   <td className="py-4 px-4">
-                    <button className="text-sm text-primary-700 hover:text-primary-800 font-medium">
+                    <button 
+                      className="text-sm text-primary-700 hover:text-primary-800 font-medium"
+                      onClick={() => setShowDetail(accident.id)}
+                    >
                       查看详情
                     </button>
                   </td>
@@ -502,6 +519,122 @@ const Report = () => {
                     提交报案
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDetail && selectedAccident && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">报案详情</h3>
+                <p className="text-sm text-gray-500 mt-1">{selectedAccident.reportNo}</p>
+              </div>
+              <button onClick={() => setShowDetail(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">关联任务</p>
+                  <p className="font-medium text-gray-800">{selectedAccident.taskName || '-'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">事故时间</p>
+                  <p className="font-medium text-gray-800">{formatDateTime(selectedAccident.accidentTime)}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">事故地点</p>
+                  <p className="font-medium text-gray-800">{selectedAccident.location}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">经纬度</p>
+                  <p className="font-medium text-gray-800">{selectedAccident.lng}, {selectedAccident.lat}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">报案人</p>
+                  <p className="font-medium text-gray-800">{selectedAccident.reporter}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">状态</p>
+                  <StatusBadge status={selectedAccident.status} />
+                </div>
+              </div>
+
+              <div className="p-4 bg-primary-50 rounded-lg">
+                <p className="text-xs text-gray-500 mb-1">事故描述</p>
+                <p className="text-gray-800">{selectedAccident.description}</p>
+              </div>
+
+              <div>
+                <h4 className="font-medium text-gray-800 mb-3 flex items-center">
+                  <FileText className="w-5 h-5 mr-2 text-primary-600" />
+                  损失清单 ({selectedAccident.lossItems?.length || 0} 项)
+                </h4>
+                {!selectedAccident.lossItems || selectedAccident.lossItems.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">
+                    暂无损失项
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedAccident.lossItems.map((item, index) => (
+                      <div key={item.id} className="p-4 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full">
+                            {lossTypeLabels[item.type] || item.type}
+                          </span>
+                          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+                            {damageDegreeLabels[item.damageDegree] || item.damageDegree}
+                          </span>
+                        </div>
+                        <p className="font-medium text-gray-800">{item.name}</p>
+                        <div className="mt-2 flex items-center justify-between text-sm text-gray-600">
+                          <span>数量：{item.quantity}</span>
+                          <span>单价：{formatCurrency(item.unitPrice)}</span>
+                          <span className="font-medium text-accent-600">小计：{formatCurrency(item.quantity * item.unitPrice)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-medium text-gray-800 mb-3 flex items-center">
+                  <User className="w-5 h-5 mr-2 text-accent-600" />
+                  第三方责任 ({selectedAccident.thirdParties?.length || 0} 项)
+                </h4>
+                {!selectedAccident.thirdParties || selectedAccident.thirdParties.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">
+                    无第三方责任
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedAccident.thirdParties.map((item) => (
+                      <div key={item.id} className="p-4 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                            {thirdPartyTypeLabels[item.type] || item.type}
+                          </span>
+                          <span className="font-medium text-accent-600">
+                            预估损失：{formatCurrency(item.estimatedLoss)}
+                          </span>
+                        </div>
+                        <p className="font-medium text-gray-800">{item.name}</p>
+                        <p className="mt-2 text-sm text-gray-600">{item.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowDetail(null)} className="btn-primary">
+                关闭
               </button>
             </div>
           </div>

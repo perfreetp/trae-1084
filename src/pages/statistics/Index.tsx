@@ -52,6 +52,24 @@ const Statistics = () => {
     { name: '已过期', value: policies.filter(p => p.status === 'expired').length, color: '#E94560' },
   ];
 
+  const policyStatusSummary = useMemo(() => {
+    const statuses = ['active', 'pending', 'renewal', 'expired'];
+    const statusLabels: Record<string, string> = {
+      active: '有效',
+      pending: '待审核',
+      renewal: '待续保',
+      expired: '已过期'
+    };
+    return statuses.map(status => {
+      const filtered = policies.filter(p => p.status === status);
+      return {
+        status: statusLabels[status],
+        count: filtered.length,
+        premium: filtered.reduce((sum, p) => sum + p.premium, 0)
+      };
+    });
+  }, [policies]);
+
   const accidentReasonData = useMemo(() => {
     const reasons: Record<string, number> = {
       '操作失误': 0,
@@ -112,11 +130,11 @@ const Statistics = () => {
   }, [policies]);
 
   const monthlyTrendData = useMemo(() => {
-    const monthMap: Record<string, { policies: number; premium: number; accidents: number; claims: number }> = {};
+    const monthMap: Record<string, { policies: number; premium: number; accidents: number; claims: number; claimAmount: number }> = {};
     policies.forEach(p => {
       const month = p.startDate.substring(0, 7);
       if (!monthMap[month]) {
-        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0 };
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0, claimAmount: 0 };
       }
       monthMap[month].policies++;
       monthMap[month].premium += p.premium;
@@ -124,16 +142,17 @@ const Statistics = () => {
     accidents.forEach(a => {
       const month = a.accidentTime.substring(0, 7);
       if (!monthMap[month]) {
-        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0 };
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0, claimAmount: 0 };
       }
       monthMap[month].accidents++;
     });
     claims.forEach(c => {
       const month = c.createTime.substring(0, 7);
       if (!monthMap[month]) {
-        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0 };
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0, claimAmount: 0 };
       }
       monthMap[month].claims++;
+      monthMap[month].claimAmount += c.actualAmount;
     });
     return Object.entries(monthMap)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -407,9 +426,88 @@ const Statistics = () => {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">按状态汇总</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-600">状态</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">保单数</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">保费合计</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {policyStatusSummary.map((item) => (
+                      <tr key={item.status} className="border-b border-gray-100">
+                        <td className="py-3 px-3 text-sm text-gray-700">{item.status}</td>
+                        <td className="py-3 px-3 text-sm font-medium text-gray-800 text-right">{item.count}</td>
+                        <td className="py-3 px-3 text-sm font-medium text-primary-700 text-right">{formatCurrency(item.premium)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-50">
+                      <td className="py-3 px-3 text-sm font-semibold text-gray-800">合计</td>
+                      <td className="py-3 px-3 text-sm font-bold text-gray-800 text-right">{policies.length}</td>
+                      <td className="py-3 px-3 text-sm font-bold text-primary-700 text-right">{formatCurrency(totalPremium)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">按保障方案汇总</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-600">方案名称</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">保单数</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">保费合计</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planStatistics.map((item) => (
+                      <tr key={item.name} className="border-b border-gray-100">
+                        <td className="py-3 px-3 text-sm text-gray-700">{item.name}</td>
+                        <td className="py-3 px-3 text-sm font-medium text-gray-800 text-right">{item.保单数}</td>
+                        <td className="py-3 px-3 text-sm font-medium text-primary-700 text-right">{formatCurrency(item.保费)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">按运营商汇总</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-600">运营商</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">保单数</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-600">保费合计</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operatorStatistics.map((item) => (
+                      <tr key={item.name} className="border-b border-gray-100">
+                        <td className="py-3 px-3 text-sm text-gray-700">{item.name}</td>
+                        <td className="py-3 px-3 text-sm font-medium text-gray-800 text-right">{item.保单数}</td>
+                        <td className="py-3 px-3 text-sm font-medium text-primary-700 text-right">{formatCurrency(item.保费)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="card">
-              <h3 className="font-semibold text-gray-800 mb-4">按保障方案统计</h3>
+              <h3 className="font-semibold text-gray-800 mb-4">按保障方案统计（图表）</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={planStatistics}>
@@ -425,13 +523,14 @@ const Statistics = () => {
                     />
                     <Legend />
                     <Bar dataKey="保单数" fill="#0F3460" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="保费" fill="#27AE60" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
             <div className="card">
-              <h3 className="font-semibold text-gray-800 mb-4">按运营商统计</h3>
+              <h3 className="font-semibold text-gray-800 mb-4">按运营商统计（图表）</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={operatorStatistics} layout="vertical">
@@ -563,7 +662,7 @@ const Statistics = () => {
               <h3 className="font-semibold text-gray-800 mb-4">赔付金额趋势</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyTrendData}>
+                  <BarChart data={monthlyTrendData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
                     <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
@@ -573,11 +672,11 @@ const Statistics = () => {
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                       }}
+                      formatter={(value: any) => [formatCurrency(value as number), '赔付金额']}
                     />
                     <Legend />
-                    <Line type="monotone" dataKey="accidents" name="事故数" stroke="#E94560" strokeWidth={2} dot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="claims" name="赔案数" stroke="#F39C12" strokeWidth={2} dot={{ r: 4 }} />
-                  </LineChart>
+                    <Bar dataKey="claimAmount" name="赔付金额" fill="#E94560" radius={[4, 4, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>

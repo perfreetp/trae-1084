@@ -122,6 +122,7 @@ export interface Claim {
   auditNodes: AuditNode[];
   status: 'pending' | 'surveying' | 'auditing' | 'approved' | 'paid' | 'closed' | 'disputed';
   createTime: string;
+  closeTime?: string;
 }
 
 export interface Dispute {

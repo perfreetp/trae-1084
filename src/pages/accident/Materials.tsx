@@ -169,36 +169,46 @@ const Materials = () => {
 
           <div className="card">
             <h3 className="font-semibold text-gray-800 mb-4">已上传材料 ({filteredMaterials.length})</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filteredMaterials.map((material) => {
                 const Icon = typeIcons[material.type];
                 return (
-                  <div key={material.id} className="relative group">
-                    <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden flex flex-col items-center justify-center p-4 hover:bg-gray-200 transition-colors">
+                  <div key={material.id} className="relative group border border-gray-200 rounded-lg overflow-hidden hover:border-primary-300 transition-all hover:shadow-md">
+                    <div className="aspect-video bg-gray-100 overflow-hidden flex items-center justify-center">
                       {material.type === 'photo' ? (
                         <img 
                           src={material.url} 
                           alt={material.name} 
-                          className="w-full h-full object-cover rounded-lg"
+                          className="w-full h-full object-cover"
                         />
+                      ) : material.type === 'video' ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 text-white">
+                          <Icon className="w-12 h-12 mb-2 opacity-80" />
+                          <span className="text-xs opacity-60">点击播放</span>
+                        </div>
                       ) : (
-                        <>
-                          <Icon className="w-10 h-10 text-gray-400 mb-2" />
-                          <p className="text-xs text-gray-600 text-center truncate w-full">{material.name}</p>
-                        </>
+                        <Icon className="w-12 h-12 text-gray-400" />
                       )}
                     </div>
-                    <div className="absolute top-2 right-2">
-                      <StatusBadge status={material.auditStatus} />
+                    <div className="p-3 bg-white">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full font-medium">
+                          {typeLabels[material.type]}
+                        </span>
+                        <StatusBadge status={material.auditStatus} />
+                      </div>
+                      <p className="text-sm font-medium text-gray-800 truncate" title={material.name}>
+                        {material.name}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatDateTime(material.uploadTime)}
+                      </p>
                     </div>
-                    <div className="absolute bottom-2 left-2 text-xs text-gray-500">
-                      {formatDateTime(material.uploadTime).split(' ')[1]}
-                    </div>
-                    <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center space-x-2">
-                      <button className="p-2 bg-white rounded-full text-gray-600 hover:text-primary-700">
+                    <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
+                      <button className="p-2 bg-white rounded-full text-gray-600 hover:text-primary-700 shadow-lg">
                         <Check className="w-4 h-4" />
                       </button>
-                      <button className="p-2 bg-white rounded-full text-gray-600 hover:text-red-500">
+                      <button className="p-2 bg-white rounded-full text-gray-600 hover:text-red-500 shadow-lg">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>

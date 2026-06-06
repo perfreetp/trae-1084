@@ -22,6 +22,7 @@ const Survey = () => {
   const { claims, accidents, surveys, addSurvey, updateClaim, updateAccident } = useAppStore();
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAssignSurveyor, setShowAssignSurveyor] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [formData, setFormData] = useState({
     claimId: '',
     surveyorId: '',
@@ -40,7 +41,31 @@ const Survey = () => {
   const surveyClaims = claims.filter(c => ['pending', 'surveying'].includes(c.status));
   
   const today = new Date().toISOString().split('T')[0];
-  const todaySurveys = surveys.filter(s => s.surveyTime.startsWith(today));
+  const selectedDateSurveys = surveys.filter(s => s.surveyTime.startsWith(selectedDate));
+
+  const formatDateLabel = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    if (dateStr === today.toISOString().split('T')[0]) return '今天';
+    if (dateStr === tomorrow.toISOString().split('T')[0]) return '明天';
+    return `${date.getMonth() + 1}月${date.getDate()}日`;
+  };
+
+  const quickDates = [
+    { offset: 0, label: '今天' },
+    { offset: 1, label: '明天' },
+    { offset: 2, label: '后天' },
+    { offset: 7, label: '7天后' },
+  ];
+
+  const getDateByOffset = (offset: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    return date.toISOString().split('T')[0];
+  };
 
   const handleAssignSurveyor = (claimId: string, surveyorId: string) => {
     const claim = claims.find(c => c.id === claimId);
@@ -299,20 +324,70 @@ const Survey = () => {
           </div>
 
           <div className="card">
-            <h3 className="font-semibold text-gray-800 mb-4">今日查勘日程</h3>
-            <div className="space-y-3">
-              {todaySurveys.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">今日无查勘安排</p>
+            <h3 className="font-semibold text-gray-800 mb-4">查勘日程</h3>
+            
+            <div className="mb-4">
+              <input
+                type="date"
+                className="input-field text-sm mb-3"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+              <div className="flex gap-2 flex-wrap">
+                {quickDates.map((item) => {
+                  const date = getDateByOffset(item.offset);
+                  return (
+                    <button
+                      key={item.offset}
+                      onClick={() => setSelectedDate(date)}
+                      className={`px-3 py-1 text-xs rounded-full transition-all ${
+                        selectedDate === date
+                          ? 'bg-primary-700 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mb-3 p-3 bg-primary-50 rounded-lg text-center">
+              <p className="text-sm font-medium text-primary-700">
+                {formatDateLabel(selectedDate)} · {selectedDate}
+              </p>
+              <p className="text-xs text-primary-600 mt-1">
+                共 {selectedDateSurveys.length} 个查勘安排
+              </p>
+            </div>
+
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {selectedDateSurveys.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">该日期无查勘安排</p>
               ) : (
-                todaySurveys.map((survey) => {
+                selectedDateSurveys.map((survey) => {
                   const claim = claims.find(c => c.id === survey.claimId);
                   return (
                     <div key={survey.id} className="p-3 border-l-4 border-primary-700 bg-gray-50 rounded-r-lg">
-                      <p className="font-medium text-gray-800 text-sm">{claim?.claimNo}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {survey.surveyTime.split('T')[1].substring(0, 5)} - {survey.location}
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-medium text-gray-800 text-sm">{claim?.claimNo}</p>
+                        <span className={`status-badge ${survey.status === 'scheduled' ? 'status-pending' : 'status-active'}`}>
+                          {survey.status === 'scheduled' ? '已预约' : '已完成'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1 flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {survey.surveyTime.split('T')[1].substring(0, 5)}
                       </p>
-                      <p className="text-xs text-gray-500">查勘员：{survey.surveyor}</p>
+                      <p className="text-xs text-gray-600 mt-1 flex items-center">
+                        <MapPin className="w-3 h-3 mr-1" />
+                        {survey.location}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1 flex items-center">
+                        <User className="w-3 h-3 mr-1" />
+                        查勘员：{survey.surveyor}
+                      </p>
                     </div>
                   );
                 })

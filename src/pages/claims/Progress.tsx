@@ -23,6 +23,8 @@ const Progress = () => {
   const [selectedClaim, setSelectedClaim] = useState(claims[0]?.id || '');
   const [showCalculate, setShowCalculate] = useState(false);
   const [showDispute, setShowDispute] = useState(false);
+  const [showCloseCase, setShowCloseCase] = useState(false);
+  const [showClosingInfo, setShowClosingInfo] = useState(false);
   const [calculateAmount, setCalculateAmount] = useState(0);
   const [disputeForm, setDisputeForm] = useState({ title: '', description: '' });
 
@@ -30,7 +32,8 @@ const Progress = () => {
   const accident = accidents.find(a => a.id === currentClaim?.accidentId);
   const claimDisputes = disputes.filter(d => d.claimId === selectedClaim);
 
-  const canCalculate = currentClaim && ['surveying', 'auditing'].includes(currentClaim.status);
+  const canCalculate = currentClaim && ['surveying', 'auditing'].includes(currentClaim.status) && currentClaim.actualAmount === 0;
+  const canApprove = currentClaim && currentClaim.status === 'auditing' && currentClaim.actualAmount > 0;
   const canClose = currentClaim && currentClaim.status === 'approved' && currentClaim.actualAmount > 0;
 
   const handleCalculate = () => {
@@ -41,7 +44,7 @@ const Progress = () => {
         return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: '现场查勘完成' };
       }
       if (node.id === '4') {
-        return { ...node, status: 'current' as const, time: formatDateTime(new Date().toISOString()) };
+        return { ...node, status: 'current' as const, time: formatDateTime(new Date().toISOString()), comment: `赔付测算：${formatCurrency(calculateAmount)}，等待审核` };
       }
       return node;
     });
@@ -58,13 +61,32 @@ const Progress = () => {
     setCalculateAmount(0);
   };
 
-  const handleCloseCase = () => {
+  const handleApprove = () => {
     if (!currentClaim) return;
 
     const updatedAuditNodes = currentClaim.auditNodes.map(node => {
       if (node.id === '4') {
-        return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: `赔付金额：${formatCurrency(currentClaim.actualAmount)}` };
+        return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: `审核通过，赔付金额：${formatCurrency(currentClaim.actualAmount)}` };
       }
+      if (node.id === '5') {
+        return { ...node, status: 'current' as const, time: formatDateTime(new Date().toISOString()) };
+      }
+      return node;
+    });
+
+    const updatedClaim: Claim = {
+      ...currentClaim,
+      status: 'approved',
+      auditNodes: updatedAuditNodes
+    };
+
+    updateClaim(updatedClaim);
+  };
+
+  const handleCloseCase = () => {
+    if (!currentClaim) return;
+
+    const updatedAuditNodes = currentClaim.auditNodes.map(node => {
       if (node.id === '5') {
         return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: '已结案，赔付完成' };
       }
@@ -74,6 +96,7 @@ const Progress = () => {
     const updatedClaim: Claim = {
       ...currentClaim,
       status: 'closed',
+      closeTime: new Date().toISOString(),
       auditNodes: updatedAuditNodes
     };
 
@@ -85,6 +108,8 @@ const Progress = () => {
         status: 'closed'
       });
     }
+
+    setShowCloseCase(false);
   };
 
   const handleSubmitDispute = () => {
@@ -206,6 +231,42 @@ const Progress = () => {
                   </div>
                 )}
 
+                {canApprove && (
+                  <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-green-800">审核通过</p>
+                        <p className="text-sm text-green-600">赔付测算已完成，核定赔付金额：{formatCurrency(currentClaim.actualAmount)}</p>
+                      </div>
+                      <button 
+                        className="btn-accent text-sm"
+                        onClick={handleApprove}
+                      >
+                        <Check className="w-4 h-4 mr-1 inline" />
+                        审核通过
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {canClose && (
+                  <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-orange-800">待结案</p>
+                        <p className="text-sm text-orange-600">审核已通过，可以进行结案确认</p>
+                      </div>
+                      <button 
+                        className="btn-accent text-sm"
+                        onClick={() => setShowCloseCase(true)}
+                      >
+                        <Check className="w-4 h-4 mr-1 inline" />
+                        结案确认
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {accident && (
                   <div className="p-4 bg-primary-50 rounded-lg mb-6">
                     <h4 className="font-medium text-gray-800 mb-2">事故信息</h4>
@@ -307,17 +368,13 @@ const Progress = () => {
                   提交异议
                 </button>
                 <div className="flex items-center space-x-3">
-                  <button className="btn-secondary">
-                    <FileText className="w-4 h-4 mr-2 inline" />
-                    查看详情
-                  </button>
-                  {canClose && (
+                  {currentClaim.status === 'closed' && (
                     <button 
-                      className="btn-accent"
-                      onClick={handleCloseCase}
+                      className="btn-secondary"
+                      onClick={() => setShowClosingInfo(true)}
                     >
-                      <Check className="w-4 h-4 mr-2 inline" />
-                      结案确认
+                      <FileText className="w-4 h-4 mr-2 inline" />
+                      查看结案书
                     </button>
                   )}
                   {currentClaim.status === 'closed' && (
@@ -409,6 +466,121 @@ const Progress = () => {
               <button onClick={handleSubmitDispute} className="btn-accent">
                 <MessageSquare className="w-4 h-4 mr-2 inline" />
                 提交异议
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCloseCase && currentClaim && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">结案确认</h3>
+              <button onClick={() => setShowCloseCase(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-sm text-orange-800 font-medium">
+                  确认结案后，该赔案将标记为已结案，赔付金额将正式生效。
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">赔案号</span>
+                  <span className="font-medium text-gray-800">{currentClaim.claimNo}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">核定赔付金额</span>
+                  <span className="font-bold text-green-600 text-lg">{formatCurrency(currentClaim.actualAmount)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button onClick={() => setShowCloseCase(false)} className="btn-secondary">取消</button>
+              <button onClick={handleCloseCase} className="btn-accent">
+                <Check className="w-4 h-4 mr-2 inline" />
+                确认结案
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClosingInfo && currentClaim && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">结案报告书</h3>
+              <button onClick={() => setShowClosingInfo(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="text-center border-b border-gray-200 pb-6">
+                <h2 className="text-xl font-bold text-gray-800">低空飞行保险理赔结案书</h2>
+                <p className="text-sm text-gray-500 mt-2">编号：{currentClaim.claimNo}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">报案号</p>
+                  <p className="font-medium text-gray-800">{currentClaim.reportNo}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">赔案号</p>
+                  <p className="font-medium text-gray-800">{currentClaim.claimNo}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">查勘员</p>
+                  <p className="font-medium text-gray-800">{currentClaim.surveyor || '-'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">结案时间</p>
+                  <p className="font-medium text-gray-800">{currentClaim.closeTime ? formatDateTime(currentClaim.closeTime) : '-'}</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-green-800">最终赔付金额</span>
+                  <span className="text-2xl font-bold text-green-700">{formatCurrency(currentClaim.actualAmount)}</span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-medium text-gray-800 mb-3">审核节点</h4>
+                <div className="space-y-2">
+                  {currentClaim.auditNodes.map((node) => (
+                    <div key={node.id} className="flex items-center p-3 bg-gray-50 rounded-lg">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-3 ${
+                        node.status === 'completed' ? 'bg-green-500 text-white' : 'bg-gray-300'
+                      }`}>
+                        {node.status === 'completed' ? <Check className="w-3 h-3" /> : null}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-800">{node.name}</p>
+                        {node.comment && <p className="text-xs text-gray-500 mt-1">{node.comment}</p>}
+                      </div>
+                      {node.time && <span className="text-xs text-gray-400">{node.time}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-lg text-center">
+                <p className="text-sm text-gray-600">
+                  本结案书为正式理赔凭证，如有疑问请联系客服。
+                </p>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button onClick={() => setShowClosingInfo(false)} className="btn-secondary">关闭</button>
+              <button className="btn-primary">
+                <Download className="w-4 h-4 mr-2 inline" />
+                下载PDF
               </button>
             </div>
           </div>
