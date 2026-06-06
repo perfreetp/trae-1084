@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Check,
   Clock,
@@ -10,31 +10,57 @@ import {
   Download,
   MessageSquare,
   X,
-  Save
+  Save,
+  AlertTriangle,
+  History,
+  Edit2,
+  Upload,
+  ExternalLink,
+  XCircle
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/ui/PageHeader';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAppStore } from '../../store';
 import { formatCurrency, formatDateTime, generateId, downloadFile, generateClosingReportHTML } from '../../utils';
-import type { Claim, Dispute } from '../../types';
+import type { Claim, Dispute, ClosingArchive, Material } from '../../types';
 
 const Progress = () => {
-  const { claims, accidents, disputes, addDispute, updateClaim, updateAccident } = useAppStore();
+  const navigate = useNavigate();
+  const { claims, accidents, disputes, materials, closingArchives, addDispute, updateClaim, updateAccident, addClosingArchive, updateDispute } = useAppStore();
   const [selectedClaim, setSelectedClaim] = useState(claims[0]?.id || '');
   const [showCalculate, setShowCalculate] = useState(false);
   const [showDispute, setShowDispute] = useState(false);
   const [showCloseCase, setShowCloseCase] = useState(false);
   const [showClosingInfo, setShowClosingInfo] = useState(false);
+  const [showArchiveHistory, setShowArchiveHistory] = useState(false);
+  const [showProcessDispute, setShowProcessDispute] = useState<string | null>(null);
+  const [showMaterialsBlock, setShowMaterialsBlock] = useState(false);
   const [calculateAmount, setCalculateAmount] = useState(0);
   const [disputeForm, setDisputeForm] = useState({ title: '', description: '' });
+  const [disputeProcessForm, setDisputeProcessForm] = useState({ status: 'processing' as 'processing' | 'resolved', conclusion: '' });
 
   const currentClaim = claims.find(c => c.id === selectedClaim);
   const accident = accidents.find(a => a.id === currentClaim?.accidentId);
   const claimDisputes = disputes.filter(d => d.claimId === selectedClaim);
+  const claimMaterials = materials.filter(m => m.accidentId === currentClaim?.accidentId);
+  const claimArchives = useMemo(() => 
+    closingArchives.filter(a => a.claimId === selectedClaim).sort((a, b) => b.version - a.version),
+    [closingArchives, selectedClaim]
+  );
+  const rejectedMaterials = useMemo(() => 
+    claimMaterials.filter(m => m.auditStatus === 'rejected'),
+    [claimMaterials]
+  );
+  const pendingMaterials = useMemo(() => 
+    claimMaterials.filter(m => m.auditStatus === 'pending'),
+    [claimMaterials]
+  );
+  const hasBlockedMaterials = rejectedMaterials.length > 0 || pendingMaterials.length > 0;
 
   const canCalculate = currentClaim && ['surveying', 'auditing'].includes(currentClaim.status) && currentClaim.actualAmount === 0;
   const canApprove = currentClaim && currentClaim.status === 'auditing' && currentClaim.actualAmount > 0;
-  const canClose = currentClaim && currentClaim.status === 'approved' && currentClaim.actualAmount > 0;
+  const canClose = currentClaim && currentClaim.status === 'approved' && currentClaim.actualAmount > 0 && !hasBlockedMaterials;
 
   const lossTypeLabels: Record<string, string> = {
     drone: '无人机',
@@ -47,9 +73,24 @@ const Progress = () => {
     person: '人员伤亡'
   };
 
-  const handleDownloadClosingReport = () => {
+  const handleDownloadClosingReport = (archiveId?: string) => {
     if (!currentClaim || !accident) return;
 
+    if (archiveId) {
+      const archive = claimArchives.find(a => a.id === archiveId);
+      if (archive) {
+        downloadFile(archive.content, `结案报告书_${currentClaim.claimNo}_v${archive.version}.html`, 'text/html');
+        return;
+      }
+    }
+
+    const latestArchive = claimArchives[0];
+    if (latestArchive) {
+      downloadFile(latestArchive.content, `结案报告书_${currentClaim.claimNo}_v${latestArchive.version}.html`, 'text/html');
+      return;
+    }
+
+    const now = new Date().toISOString();
     const html = generateClosingReportHTML({
       claimNo: currentClaim.claimNo,
       reportNo: currentClaim.reportNo,
@@ -61,10 +102,31 @@ const Progress = () => {
       auditNodes: currentClaim.auditNodes,
       disputes: claimDisputes,
       lossItems: accident.lossItems,
-      thirdParties: accident.thirdParties
+      thirdParties: accident.thirdParties,
+      generateTime: formatDateTime(now)
     });
 
     downloadFile(html, `结案报告书_${currentClaim.claimNo}.html`, 'text/html');
+  };
+
+  const handleProcessDispute = (disputeId: string) => {
+    const dispute = disputes.find(d => d.id === disputeId);
+    if (!dispute) return;
+
+    const updatedDispute: Dispute = {
+      ...dispute,
+      status: disputeProcessForm.status,
+      conclusion: disputeProcessForm.conclusion,
+      updateTime: new Date().toISOString(),
+      handler: '理赔专员'
+    };
+    updateDispute(updatedDispute);
+    setShowProcessDispute(null);
+    setDisputeProcessForm({ status: 'processing', conclusion: '' });
+  };
+
+  const handleDownloadArchive = (archive: ClosingArchive) => {
+    downloadFile(archive.content, `结案报告书_${archive.claimNo}_v${archive.version}.html`, 'text/html');
   };
 
   const handleCalculate = () => {
@@ -115,11 +177,14 @@ const Progress = () => {
   };
 
   const handleCloseCase = () => {
-    if (!currentClaim) return;
+    if (!currentClaim || !accident) return;
+
+    const now = new Date().toISOString();
+    const version = claimArchives.length + 1;
 
     const updatedAuditNodes = currentClaim.auditNodes.map(node => {
       if (node.id === '5') {
-        return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: '已结案，赔付完成' };
+        return { ...node, status: 'completed' as const, time: formatDateTime(now), comment: '已结案，赔付完成' };
       }
       return node;
     });
@@ -127,7 +192,7 @@ const Progress = () => {
     const updatedClaim: Claim = {
       ...currentClaim,
       status: 'closed',
-      closeTime: new Date().toISOString(),
+      closeTime: now,
       auditNodes: updatedAuditNodes
     };
 
@@ -139,6 +204,32 @@ const Progress = () => {
         status: 'closed'
       });
     }
+
+    const archiveContent = generateClosingReportHTML({
+      claimNo: currentClaim.claimNo,
+      reportNo: currentClaim.reportNo,
+      location: accident.location,
+      accidentTime: formatDateTime(accident.accidentTime),
+      actualAmount: currentClaim.actualAmount,
+      closeTime: formatDateTime(now),
+      surveyor: currentClaim.surveyor || '-',
+      auditNodes: updatedAuditNodes,
+      disputes: claimDisputes,
+      lossItems: accident.lossItems,
+      thirdParties: accident.thirdParties,
+      generateTime: formatDateTime(now)
+    });
+
+    const newArchive: ClosingArchive = {
+      id: generateId(),
+      claimId: currentClaim.id,
+      claimNo: currentClaim.claimNo,
+      version,
+      archiveTime: now,
+      actualAmount: currentClaim.actualAmount,
+      content: archiveContent
+    };
+    addClosingArchive(newArchive);
 
     setShowCloseCase(false);
   };
@@ -262,6 +353,37 @@ const Progress = () => {
                   </div>
                 )}
 
+                {hasBlockedMaterials && currentClaim.status === 'approved' && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start">
+                        <AlertTriangle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-red-800">材料审核未通过，暂无法结案</p>
+                          <p className="text-sm text-red-600 mt-1">
+                            该案件存在 {rejectedMaterials.length} 项已驳回材料，{pendingMaterials.length} 项待审核材料
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button 
+                          className="btn-accent text-xs"
+                          onClick={() => setShowMaterialsBlock(true)}
+                        >
+                          查看详情
+                        </button>
+                        <button 
+                          className="btn-secondary text-xs"
+                          onClick={() => navigate(`/accident/materials?accidentId=${currentClaim.accidentId}`)}
+                        >
+                          <Upload className="w-3 h-3 mr-1 inline" />
+                          补传材料
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {canApprove && (
                   <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
                     <div className="flex items-center justify-between">
@@ -314,6 +436,49 @@ const Progress = () => {
                         <span className="text-gray-500">事故描述：</span>
                         <span className="text-gray-800">{accident.description}</span>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {currentClaim.status === 'closed' && claimArchives.length > 0 && (
+                  <div className="p-4 bg-gray-50 rounded-lg mb-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-medium text-gray-800 flex items-center">
+                        <History className="w-5 h-5 mr-2 text-primary-600" />
+                        结案书历史版本
+                      </h4>
+                      <button 
+                        className="text-sm text-primary-700 hover:text-primary-800"
+                        onClick={() => setShowArchiveHistory(true)}
+                      >
+                        查看全部
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {claimArchives.slice(0, 2).map((archive) => (
+                        <div key={archive.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                          <div>
+                            <span className="text-sm font-medium text-gray-800">
+                              版本 v{archive.version}
+                            </span>
+                            <span className="text-xs text-gray-500 ml-3">
+                              {formatDateTime(archive.archiveTime)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-green-600 font-medium">
+                              {formatCurrency(archive.actualAmount)}
+                            </span>
+                            <button 
+                              className="text-xs text-primary-700 hover:text-primary-800 flex items-center"
+                              onClick={() => handleDownloadArchive(archive)}
+                            >
+                              <Download className="w-3 h-3 mr-1" />
+                              下载
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -370,19 +535,57 @@ const Progress = () => {
                   <h3 className="font-semibold text-gray-800 mb-4">争议记录</h3>
                   <div className="space-y-3">
                     {claimDisputes.map((dispute) => (
-                      <div key={dispute.id} className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <div key={dispute.id} className={`p-4 rounded-lg border ${
+                        dispute.status === 'resolved' 
+                          ? 'bg-green-50 border-green-200' 
+                          : 'bg-yellow-50 border-yellow-200'
+                      }`}>
                         <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-yellow-800">{dispute.title}</h4>
+                          <h4 className={`font-medium ${
+                            dispute.status === 'resolved' ? 'text-green-800' : 'text-yellow-800'
+                          }`}>{dispute.title}</h4>
                           <span className={`status-badge ${
                             dispute.status === 'resolved' ? 'status-active' : 'status-pending'
                           }`}>
                             {dispute.status === 'open' ? '待处理' : dispute.status === 'processing' ? '处理中' : '已解决'}
                           </span>
                         </div>
-                        <p className="text-sm text-yellow-700">{dispute.description}</p>
-                        <div className="flex items-center justify-between mt-3 text-xs text-yellow-600">
-                          <span>处理人：{dispute.handler}</span>
-                          <span>{formatDateTime(dispute.createTime)}</span>
+                        <p className={`text-sm ${
+                          dispute.status === 'resolved' ? 'text-green-700' : 'text-yellow-700'
+                        }`}>{dispute.description}</p>
+                        {dispute.conclusion && (
+                          <div className={`mt-3 p-3 rounded-lg text-sm ${
+                            dispute.status === 'resolved' 
+                              ? 'bg-white text-green-700 border border-green-200' 
+                              : 'bg-white text-yellow-700 border border-yellow-200'
+                          }`}>
+                            <span className="font-medium">处理结论：</span>
+                            {dispute.conclusion}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between mt-3">
+                          <div className={`text-xs ${
+                            dispute.status === 'resolved' ? 'text-green-600' : 'text-yellow-600'
+                          }`}>
+                            <span>处理人：{dispute.handler}</span>
+                            <span className="mx-2">|</span>
+                            <span>{formatDateTime(dispute.createTime)}</span>
+                          </div>
+                          {dispute.status !== 'resolved' && (
+                            <button 
+                              className="text-xs text-primary-700 hover:text-primary-800 flex items-center"
+                              onClick={() => {
+                                setShowProcessDispute(dispute.id);
+                                setDisputeProcessForm({ 
+                                  status: dispute.status === 'open' ? 'processing' : 'resolved', 
+                                  conclusion: dispute.conclusion || '' 
+                                });
+                              }}
+                            >
+                              <Edit2 className="w-3 h-3 mr-1" />
+                              处理
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -663,6 +866,174 @@ const Progress = () => {
               <button className="btn-primary" onClick={handleDownloadClosingReport}>
                 <Download className="w-4 h-4 mr-2 inline" />
                 下载结案书
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMaterialsBlock && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">材料审核情况</h3>
+              <button onClick={() => setShowMaterialsBlock(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {rejectedMaterials.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-red-700 mb-3 flex items-center">
+                    <XCircle className="w-5 h-5 mr-2" />
+                    已驳回材料 ({rejectedMaterials.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {rejectedMaterials.map((material) => (
+                      <div key={material.id} className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-red-800">{material.name}</span>
+                          <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">已驳回</span>
+                        </div>
+                        <p className="text-sm text-red-600 mt-2">
+                          <span className="font-medium">驳回原因：</span>{material.auditRemark}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pendingMaterials.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-yellow-700 mb-3 flex items-center">
+                    <Clock className="w-5 h-5 mr-2" />
+                    待审核材料 ({pendingMaterials.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {pendingMaterials.map((material) => (
+                      <div key={material.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-yellow-800">{material.name}</span>
+                          <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">待审核</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <span className="font-medium">提示：</span>
+                  请前往材料收集页重新上传被驳回的材料，等待审核通过后才能结案。
+                </p>
+                <button 
+                  className="mt-3 btn-primary text-sm"
+                  onClick={() => {
+                    setShowMaterialsBlock(false);
+                    navigate(`/accident/materials?accidentId=${currentClaim?.accidentId}`);
+                  }}
+                >
+                  <Upload className="w-4 h-4 mr-2 inline" />
+                  前往补传材料
+                </button>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowMaterialsBlock(false)} className="btn-secondary">关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showArchiveHistory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                <History className="w-5 h-5 mr-2 text-primary-600" />
+                结案书历史版本
+              </h3>
+              <button onClick={() => setShowArchiveHistory(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              {claimArchives.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">暂无历史版本</p>
+              ) : (
+                claimArchives.map((archive) => (
+                  <div key={archive.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-primary-300 transition-all">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-medium text-gray-800">版本 v{archive.version}</span>
+                        <span className="text-xs text-gray-500 ml-3">
+                          归档时间：{formatDateTime(archive.archiveTime)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-green-600">
+                          {formatCurrency(archive.actualAmount)}
+                        </span>
+                        <button 
+                          className="btn-primary text-xs"
+                          onClick={() => handleDownloadArchive(archive)}
+                        >
+                          <Download className="w-3 h-3 mr-1 inline" />
+                          下载
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowArchiveHistory(false)} className="btn-secondary">关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProcessDispute && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">处理争议</h3>
+              <button onClick={() => setShowProcessDispute(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">处理状态</label>
+                <select 
+                  className="input-field"
+                  value={disputeProcessForm.status}
+                  onChange={(e) => setDisputeProcessForm({ ...disputeProcessForm, status: e.target.value as 'processing' | 'resolved' })}
+                >
+                  <option value="processing">处理中</option>
+                  <option value="resolved">已解决</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">处理结论</label>
+                <textarea 
+                  className="input-field h-32"
+                  value={disputeProcessForm.conclusion}
+                  onChange={(e) => setDisputeProcessForm({ ...disputeProcessForm, conclusion: e.target.value })}
+                  placeholder="请填写处理结论和说明"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button onClick={() => setShowProcessDispute(null)} className="btn-secondary">取消</button>
+              <button 
+                className="btn-primary"
+                onClick={() => showProcessDispute && handleProcessDispute(showProcessDispute)}
+                disabled={!disputeProcessForm.conclusion.trim()}
+              >
+                <Save className="w-4 h-4 mr-2 inline" />
+                保存处理
               </button>
             </div>
           </div>

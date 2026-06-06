@@ -318,6 +318,7 @@ export const generateClosingReportHTML = (data: {
   disputes: any[];
   lossItems?: any[];
   thirdParties?: any[];
+  generateTime?: string;
 }): string => {
   const lossTypeLabels: Record<string, string> = {
     drone: '无人机',
@@ -446,7 +447,7 @@ export const generateClosingReportHTML = (data: {
 
   <div class="footer">
     <p>本结案书为正式理赔凭证，如有疑问请联系客服。</p>
-    <p>生成时间：${new Date().toLocaleString('zh-CN')}</p>
+    <p>归档时间：${data.generateTime || new Date().toLocaleString('zh-CN')}</p>
   </div>
 </body>
 </html>`;

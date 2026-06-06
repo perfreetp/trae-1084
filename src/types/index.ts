@@ -116,6 +116,7 @@ export interface Claim {
   claimNo: string;
   accidentId: string;
   reportNo: string;
+  policyNo?: string;
   estimatedAmount: number;
   actualAmount: number;
   surveyor: string;
@@ -135,6 +136,18 @@ export interface Dispute {
   status: 'open' | 'processing' | 'resolved';
   createTime: string;
   handler: string;
+  conclusion?: string;
+  updateTime?: string;
+}
+
+export interface ClosingArchive {
+  id: string;
+  claimId: string;
+  claimNo: string;
+  version: number;
+  archiveTime: string;
+  actualAmount: number;
+  content: string;
 }
 
 export interface Statistics {

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Drone, Policy, FlightTask, Accident, Material, Claim, Dispute, Survey } from '../types';
+import type { Drone, Policy, FlightTask, Accident, Material, Claim, Dispute, Survey, ClosingArchive } from '../types';
 import { mockDrones, mockPolicies, mockFlightTasks, mockAccidents, mockMaterials, mockClaims, mockDisputes } from '../data/mockData';
 import { generateId } from '../utils';
 
@@ -13,6 +13,7 @@ interface AppState {
   claims: Claim[];
   disputes: Dispute[];
   surveys: Survey[];
+  closingArchives: ClosingArchive[];
   selectedAccidentId: string | null;
   selectedClaimId: string | null;
   
@@ -26,10 +27,12 @@ interface AppState {
   addClaim: (claim: Claim) => void;
   addDispute: (dispute: Dispute) => void;
   addSurvey: (survey: Survey) => void;
+  addClosingArchive: (archive: ClosingArchive) => void;
   updateClaim: (claim: Claim) => void;
   updateAccident: (accident: Accident) => void;
   updateFlightTask: (task: FlightTask) => void;
   updateMaterial: (material: Material) => void;
+  updateDispute: (dispute: Dispute) => void;
   resetStore: () => void;
 }
 
@@ -44,6 +47,7 @@ export const useAppStore = create<AppState>()(
       claims: mockClaims,
       disputes: mockDisputes,
       surveys: [],
+      closingArchives: [],
       selectedAccidentId: null,
       selectedClaimId: null,
       
@@ -82,6 +86,10 @@ export const useAppStore = create<AppState>()(
         surveys: [...state.surveys, survey]
       })),
       
+      addClosingArchive: (archive) => set((state) => ({
+        closingArchives: [...state.closingArchives, archive]
+      })),
+      
       updateClaim: (updatedClaim) => set((state) => ({
         claims: state.claims.map(c => c.id === updatedClaim.id ? updatedClaim : c)
       })),
@@ -98,6 +106,10 @@ export const useAppStore = create<AppState>()(
         materials: state.materials.map(m => m.id === updatedMaterial.id ? updatedMaterial : m)
       })),
       
+      updateDispute: (updatedDispute) => set((state) => ({
+        disputes: state.disputes.map(d => d.id === updatedDispute.id ? updatedDispute : d)
+      })),
+      
       resetStore: () => set({
         drones: mockDrones,
         policies: mockPolicies,
@@ -107,6 +119,7 @@ export const useAppStore = create<AppState>()(
         claims: mockClaims,
         disputes: mockDisputes,
         surveys: [],
+        closingArchives: [],
         selectedAccidentId: null,
         selectedClaimId: null
       })
@@ -122,7 +135,8 @@ export const useAppStore = create<AppState>()(
         materials: state.materials,
         claims: state.claims,
         disputes: state.disputes,
-        surveys: state.surveys
+        surveys: state.surveys,
+        closingArchives: state.closingArchives
       }),
     }
   )

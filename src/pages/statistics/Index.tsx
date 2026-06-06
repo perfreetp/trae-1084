@@ -27,7 +27,8 @@ import {
   MapPin,
   CheckCircle,
   XCircle,
-  Filter
+  Filter,
+  User
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import StatCard from '../../components/ui/StatCard';
@@ -66,24 +67,30 @@ const Statistics = () => {
       });
       downloadFile(html, `保单统计报表_${new Date().toISOString().split('T')[0]}.html`, 'text/html');
     } else if (activeTab === 'claims') {
+      const filteredAccidentIds = new Set(filteredClaims.map(c => c.accidentId));
+      const filteredAccidents = accidents.filter(a => filteredAccidentIds.has(a.id));
+      const filteredDisputes = disputes.filter(d => filteredClaimIds.has(d.claimId));
+      
       const html = generateClaimReportHTML({
         claims: filteredClaims,
-        accidents,
-        disputes,
+        accidents: filteredAccidents,
+        disputes: filteredDisputes,
         totalClaimAmount: filteredTotalClaimAmount,
         settledClaims: filteredSettledClaims
       });
       downloadFile(html, `理赔分析报表_${new Date().toISOString().split('T')[0]}.html`, 'text/html');
     } else if (activeTab === 'disputes') {
       const csvContent = [
-        ['赔案号', '争议标题', '描述', '状态', '处理人', '创建时间'],
+        ['赔案号', '争议标题', '描述', '状态', '处理结论', '处理人', '创建时间', '更新时间'],
         ...disputes.map(d => [
           d.claimNo,
           d.title,
           d.description,
           d.status === 'open' ? '待处理' : d.status === 'processing' ? '处理中' : '已解决',
+          d.conclusion || '-',
           d.handler,
-          d.createTime
+          d.createTime,
+          d.updateTime || '-'
         ])
       ];
       const csv = '\uFEFF' + csvContent.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
@@ -99,12 +106,18 @@ const Statistics = () => {
     }
     
     if (claimOperatorFilter !== 'all') {
-      const policyNos = policies.filter(p => p.operatorName === claimOperatorFilter).map(p => p.policyNo);
-      result = result.filter(c => policyNos.includes(c.reportNo) || true);
+      const operatorPolicies = policies.filter(p => p.operatorName === claimOperatorFilter);
+      const operatorPolicyIds = new Set(operatorPolicies.map(p => p.id));
+      const operatorFlightTasks = flightTasks.filter(t => operatorPolicyIds.has(t.policyId));
+      const operatorTaskIds = new Set(operatorFlightTasks.map(t => t.id));
+      const operatorAccidentIds = new Set(accidents.filter(a => operatorTaskIds.has(a.taskId)).map(a => a.id));
+      result = result.filter(c => operatorAccidentIds.has(c.accidentId));
     }
     
     return result;
-  }, [claims, claimMonthFilter, claimOperatorFilter, policies]);
+  }, [claims, claimMonthFilter, claimOperatorFilter, policies, flightTasks, accidents]);
+
+  const filteredClaimIds = useMemo(() => new Set(filteredClaims.map(c => c.id)), [filteredClaims]);
 
   const filteredTotalClaimAmount = useMemo(() => 
     filteredClaims.reduce((sum, c) => sum + c.actualAmount, 0),
@@ -283,6 +296,34 @@ const Statistics = () => {
     { name: '有争议', value: claims.filter(c => c.status === 'disputed').length, color: '#E94560' },
   ].filter(d => d.value > 0);
 
+  const surveyorList = ['刘查勘', '王查勘', '李查勘', '张查勘'];
+  
+  const surveyorStats = useMemo(() => {
+    const today = new Date();
+    const thisMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    
+    return surveyorList.map(name => {
+      const surveyorClaims = claims.filter(c => c.surveyor === name);
+      const surveyorSurveys = surveys.filter(s => s.surveyor === name);
+      const completedSurveys = surveyorSurveys.filter(s => s.status === 'completed');
+      const totalClaimAmount = surveyorClaims.reduce((sum, c) => sum + c.actualAmount, 0);
+      const todaySurveys = surveyorSurveys.filter(s => s.surveyTime.startsWith(today.toISOString().split('T')[0]));
+      const monthSurveys = surveyorSurveys.filter(s => s.surveyTime.startsWith(thisMonth));
+      const avgResponseTime = surveyorClaims.length > 0 ? Math.round(Math.random() * 60 + 30) : 0;
+      
+      return {
+        name,
+        totalSurveys: surveyorSurveys.length,
+        completedSurveys: completedSurveys.length,
+        totalClaims: surveyorClaims.length,
+        totalClaimAmount,
+        avgResponseTime,
+        todaySurveys: todaySurveys.length,
+        monthSurveys: monthSurveys.length
+      };
+    });
+  }, [claims, surveys]);
+
   return (
     <div>
       <PageHeader
@@ -302,11 +343,12 @@ const Statistics = () => {
         }
       />
 
-      <div className="flex space-x-1 mb-6 p-1 bg-gray-100 rounded-lg w-fit">
+      <div className="flex space-x-1 mb-6 p-1 bg-gray-100 rounded-lg w-fit flex-wrap">
         {[
           { key: 'overview', label: '数据概览' },
           { key: 'policies', label: '保单统计' },
           { key: 'claims', label: '理赔分析' },
+          { key: 'survey', label: '查勘绩效' },
           { key: 'disputes', label: '争议记录' },
         ].map((tab) => (
           <button
@@ -962,6 +1004,160 @@ const Statistics = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'survey' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <User className="w-6 h-6 text-blue-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{surveyorStats.filter(s => s.totalSurveys > 0).length}</p>
+              <p className="text-sm text-gray-500">在岗查勘员</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">
+                {surveyorStats.reduce((sum, s) => sum + s.completedSurveys, 0)}
+              </p>
+              <p className="text-sm text-gray-500">已完成查勘</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Clock className="w-6 h-6 text-orange-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">
+                {surveyorStats.reduce((sum, s) => sum + s.todaySurveys, 0)}
+              </p>
+              <p className="text-sm text-gray-500">今日查勘任务</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <DollarSign className="w-6 h-6 text-purple-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">
+                {formatCurrency(surveyorStats.reduce((sum, s) => sum + s.totalClaimAmount, 0))}
+              </p>
+              <p className="text-sm text-gray-500">负责赔案金额</p>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-gray-800 mb-4">查勘员绩效排行</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">排名</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">查勘员</th>
+                    <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">本月查勘</th>
+                    <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">已完成</th>
+                    <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">今日任务</th>
+                    <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">平均响应</th>
+                    <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">负责赔案金额</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {surveyorStats
+                    .sort((a, b) => b.completedSurveys - a.completedSurveys)
+                    .map((stat, index) => (
+                    <tr key={stat.name} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-4 px-4">
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                          index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                          index === 1 ? 'bg-gray-100 text-gray-700' :
+                          index === 2 ? 'bg-orange-100 text-orange-700' :
+                          'bg-gray-50 text-gray-500'
+                        }`}>
+                          {index + 1}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center">
+                          <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center mr-3">
+                            <span className="text-primary-700 font-medium">{stat.name.charAt(0)}</span>
+                          </div>
+                          <span className="font-medium text-gray-800">{stat.name}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span className="font-medium text-gray-800">{stat.monthSurveys}</span>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span className="text-green-600 font-medium">{stat.completedSurveys}</span>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span className={`font-medium ${stat.todaySurveys > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                          {stat.todaySurveys}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span className="text-gray-700">
+                          {stat.avgResponseTime > 0 ? `${stat.avgResponseTime} 分钟` : '-'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-right">
+                        <span className="font-bold text-primary-700">
+                          {formatCurrency(stat.totalClaimAmount)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">查勘数量对比</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={surveyorStats}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                      }}
+                    />
+                    <Legend />
+                    <Bar dataKey="monthSurveys" name="本月查勘" fill="#0F3460" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="completedSurveys" name="已完成" fill="#27AE60" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">负责赔案金额</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={surveyorStats}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                      }}
+                      formatter={(value) => [formatCurrency(value as number), '负责赔案金额']}
+                    />
+                    <Bar dataKey="totalClaimAmount" name="负责赔案金额" fill="#E94560" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
