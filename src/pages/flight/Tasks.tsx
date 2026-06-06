@@ -7,21 +7,70 @@ import {
   AlertTriangle,
   Clock,
   Shield,
-  Eye
+  Eye,
+  X
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAppStore } from '../../store';
-import { formatDateTime } from '../../utils';
+import { formatDateTime, generateId } from '../../utils';
+import type { FlightTask } from '../../types';
 
 const Tasks = () => {
-  const { flightTasks } = useAppStore();
+  const { flightTasks, policies, addFlightTask } = useAppStore();
   const [showAddTask, setShowAddTask] = useState(false);
+  const [formData, setFormData] = useState({
+    taskName: '',
+    policyId: '',
+    startTime: '',
+    endTime: '',
+    location: '',
+    riskLevel: 'low' as 'low' | 'medium' | 'high',
+    riskNote: ''
+  });
 
   const riskLevelLabels: Record<string, string> = {
     low: '低风险',
     medium: '中风险',
     high: '高风险'
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleCreateTask = () => {
+    if (!formData.taskName || !formData.policyId || !formData.startTime || !formData.endTime || !formData.location) {
+      return;
+    }
+
+    const selectedPolicy = policies.find(p => p.id === formData.policyId);
+    
+    const newTask: FlightTask = {
+      id: generateId(),
+      taskName: formData.taskName,
+      policyId: formData.policyId,
+      policyNo: selectedPolicy?.policyNo || '',
+      startTime: new Date(formData.startTime).toISOString(),
+      endTime: new Date(formData.endTime).toISOString(),
+      location: formData.location,
+      riskLevel: formData.riskLevel,
+      riskNote: formData.riskNote,
+      status: 'scheduled'
+    };
+
+    addFlightTask(newTask);
+    
+    setFormData({
+      taskName: '',
+      policyId: '',
+      startTime: '',
+      endTime: '',
+      location: '',
+      riskLevel: 'low',
+      riskNote: ''
+    });
+    setShowAddTask(false);
   };
 
   return (
@@ -90,43 +139,83 @@ const Tasks = () => {
         ))}
       </div>
 
+      {flightTasks.length === 0 && (
+        <div className="card text-center py-12">
+          <Plane className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500">暂无飞行任务，点击右上角按钮创建</p>
+        </div>
+      )}
+
       {showAddTask && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-800">新建飞行任务</h3>
-              <button onClick={() => setShowAddTask(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button onClick={() => setShowAddTask(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">任务名称</label>
-                <input type="text" className="input-field" placeholder="请输入任务名称" />
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  placeholder="请输入任务名称"
+                  value={formData.taskName}
+                  onChange={(e) => handleInputChange('taskName', e.target.value)}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">关联保单</label>
-                <select className="input-field">
-                  <option>请选择保单</option>
-                  <option>POL-2024-00001 - 大疆 M300 RTK</option>
-                  <option>POL-2024-00002 - 大疆 Mavic 3E</option>
+                <select 
+                  className="input-field"
+                  value={formData.policyId}
+                  onChange={(e) => handleInputChange('policyId', e.target.value)}
+                >
+                  <option value="">请选择保单</option>
+                  {policies.map(policy => (
+                    <option key={policy.id} value={policy.id}>{policy.policyNo} - {policy.droneModel}</option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">开始时间</label>
-                  <input type="datetime-local" className="input-field" />
+                  <input 
+                    type="datetime-local" 
+                    className="input-field"
+                    value={formData.startTime}
+                    onChange={(e) => handleInputChange('startTime', e.target.value)}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">结束时间</label>
-                  <input type="datetime-local" className="input-field" />
+                  <input 
+                    type="datetime-local" 
+                    className="input-field"
+                    value={formData.endTime}
+                    onChange={(e) => handleInputChange('endTime', e.target.value)}
+                  />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">飞行区域</label>
-                <input type="text" className="input-field" placeholder="请输入飞行区域" />
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  placeholder="请输入飞行区域"
+                  value={formData.location}
+                  onChange={(e) => handleInputChange('location', e.target.value)}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">风险等级</label>
-                <select className="input-field">
+                <select 
+                  className="input-field"
+                  value={formData.riskLevel}
+                  onChange={(e) => handleInputChange('riskLevel', e.target.value)}
+                >
                   <option value="low">低风险</option>
                   <option value="medium">中风险</option>
                   <option value="high">高风险</option>
@@ -134,12 +223,17 @@ const Tasks = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">风险备注</label>
-                <textarea className="input-field h-24" placeholder="请输入风险注意事项" />
+                <textarea 
+                  className="input-field h-24" 
+                  placeholder="请输入风险注意事项"
+                  value={formData.riskNote}
+                  onChange={(e) => handleInputChange('riskNote', e.target.value)}
+                />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
               <button onClick={() => setShowAddTask(false)} className="btn-secondary">取消</button>
-              <button className="btn-primary">创建任务</button>
+              <button onClick={handleCreateTask} className="btn-primary">创建任务</button>
             </div>
           </div>
         </div>

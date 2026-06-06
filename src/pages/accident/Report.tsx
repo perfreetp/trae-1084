@@ -8,33 +8,69 @@ import {
   Building,
   FileText,
   Send,
-  ChevronDown
+  ChevronDown,
+  X
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import { useAppStore } from '../../store';
-import { formatCurrency } from '../../utils';
+import { formatCurrency, generateId, formatDateTime } from '../../utils';
 import StatusBadge from '../../components/ui/StatusBadge';
+import type { Accident, LossItem, ThirdParty, Claim, AuditNode } from '../../types';
 
 const Report = () => {
-  const { accidents, flightTasks } = useAppStore();
+  const { accidents, flightTasks, addAccident, addClaim, claims } = useAppStore();
   const [showAddReport, setShowAddReport] = useState(false);
   const [lossItems, setLossItems] = useState<any[]>([]);
   const [thirdParties, setThirdParties] = useState<any[]>([]);
+  const [formData, setFormData] = useState({
+    taskId: '',
+    accidentTime: '',
+    location: '',
+    lng: 0,
+    lat: 0,
+    description: ''
+  });
+  const [submitting, setSubmitting] = useState(false);
 
   const addLossItem = () => {
-    setLossItems([...lossItems, { id: Date.now(), type: 'drone', name: '', quantity: 1, unitPrice: 0, damageDegree: 'minor' }]);
+    setLossItems([...lossItems, { 
+      id: generateId(), 
+      type: 'drone', 
+      name: '', 
+      quantity: 1, 
+      unitPrice: 0, 
+      damageDegree: 'minor' 
+    }]);
   };
 
   const removeLossItem = (id: string) => {
     setLossItems(lossItems.filter(item => item.id !== id));
   };
 
+  const updateLossItem = (index: number, field: string, value: any) => {
+    const newItems = [...lossItems];
+    newItems[index] = { ...newItems[index], [field]: value };
+    setLossItems(newItems);
+  };
+
   const addThirdParty = () => {
-    setThirdParties([...thirdParties, { id: Date.now(), type: 'property', name: '', description: '', estimatedLoss: 0 }]);
+    setThirdParties([...thirdParties, { 
+      id: generateId(), 
+      type: 'property', 
+      name: '', 
+      description: '', 
+      estimatedLoss: 0 
+    }]);
   };
 
   const removeThirdParty = (id: string) => {
     setThirdParties(thirdParties.filter(item => item.id !== id));
+  };
+
+  const updateThirdParty = (index: number, field: string, value: any) => {
+    const newItems = [...thirdParties];
+    newItems[index] = { ...newItems[index], [field]: value };
+    setThirdParties(newItems);
   };
 
   const damageDegreeLabels: Record<string, string> = {
@@ -42,6 +78,97 @@ const Report = () => {
     moderate: '中度损坏',
     severe: '严重损坏',
     total: '全部损失'
+  };
+
+  const handleSubmit = async () => {
+    if (!formData.taskId || !formData.accidentTime || !formData.location || !formData.description) {
+      return;
+    }
+
+    setSubmitting(true);
+
+    const selectedTask = flightTasks.find(t => t.id === formData.taskId);
+    const reportNo = `REP-${new Date().getFullYear()}-${String(accidents.length + 1).padStart(5, '0')}`;
+    const claimNo = `CLA-${new Date().getFullYear()}-${String(claims.length + 1).padStart(5, '0')}`;
+    const now = new Date();
+
+    const lossItemsData: LossItem[] = lossItems.map(item => ({
+      id: item.id,
+      type: item.type,
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      damageDegree: item.damageDegree
+    }));
+
+    const thirdPartiesData: ThirdParty[] = thirdParties.map(item => ({
+      id: item.id,
+      type: item.type,
+      name: item.name,
+      description: item.description,
+      estimatedLoss: item.estimatedLoss
+    }));
+
+    const newAccident: Accident = {
+      id: generateId(),
+      reportNo,
+      taskId: formData.taskId,
+      taskName: selectedTask?.taskName || '',
+      accidentTime: new Date(formData.accidentTime).toISOString(),
+      location: formData.location,
+      lng: formData.lng || 116.4074,
+      lat: formData.lat || 39.9042,
+      description: formData.description,
+      lossItems: lossItemsData,
+      thirdParties: thirdPartiesData,
+      status: 'reported',
+      reporter: '张经理',
+      reportTime: now.toISOString()
+    };
+
+    addAccident(newAccident);
+
+    const totalEstimatedLoss = lossItemsData.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0) +
+                               thirdPartiesData.reduce((sum, item) => sum + item.estimatedLoss, 0);
+
+    const auditNodes: AuditNode[] = [
+      { id: '1', name: '报案登记', role: '系统自动', status: 'completed', time: formatDateTime(now.toISOString()), comment: '报案已提交，等待审核' },
+      { id: '2', name: '材料审核', role: '理赔专员', status: 'pending' },
+      { id: '3', name: '现场查勘', role: '查勘员', status: 'pending' },
+      { id: '4', name: '赔付核算', role: '核赔师', status: 'pending' },
+      { id: '5', name: '结案确认', role: '理赔经理', status: 'pending' }
+    ];
+
+    const newClaim: Claim = {
+      id: generateId(),
+      claimNo,
+      accidentId: newAccident.id,
+      reportNo,
+      estimatedAmount: totalEstimatedLoss || 5000,
+      actualAmount: 0,
+      surveyor: '',
+      surveyTime: '',
+      auditNodes,
+      status: 'pending',
+      createTime: now.toISOString()
+    };
+
+    addClaim(newClaim);
+
+    setTimeout(() => {
+      setSubmitting(false);
+      setShowAddReport(false);
+      setFormData({
+        taskId: '',
+        accidentTime: '',
+        location: '',
+        lng: 0,
+        lat: 0,
+        description: ''
+      });
+      setLossItems([]);
+      setThirdParties([]);
+    }, 1000);
   };
 
   return (
@@ -79,7 +206,7 @@ const Report = () => {
                   </td>
                   <td className="py-4 px-4 text-sm text-gray-700">{accident.taskName}</td>
                   <td className="py-4 px-4 text-sm text-gray-700">{accident.location}</td>
-                  <td className="py-4 px-4 text-sm text-gray-700">{accident.reportTime}</td>
+                  <td className="py-4 px-4 text-sm text-gray-700">{formatDateTime(accident.reportTime)}</td>
                   <td className="py-4 px-4 text-sm text-gray-700">{accident.reporter}</td>
                   <td className="py-4 px-4">
                     <StatusBadge status={accident.status} />
@@ -96,12 +223,21 @@ const Report = () => {
         </div>
       </div>
 
+      {accidents.length === 0 && (
+        <div className="card text-center py-12">
+          <AlertTriangle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500">暂无报案记录，点击右上角按钮新建报案</p>
+        </div>
+      )}
+
       {showAddReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-800">新建事故报案</h3>
-              <button onClick={() => setShowAddReport(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button onClick={() => setShowAddReport(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="p-6 space-y-6">
               <div className="p-4 bg-accent-50 border border-accent-200 rounded-lg">
@@ -121,8 +257,12 @@ const Report = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">关联飞行任务</label>
-                    <select className="input-field">
-                      <option>请选择关联任务</option>
+                    <select 
+                      className="input-field"
+                      value={formData.taskId}
+                      onChange={(e) => setFormData({ ...formData, taskId: e.target.value })}
+                    >
+                      <option value="">请选择关联任务</option>
                       {flightTasks.map(task => (
                         <option key={task.id} value={task.id}>{task.taskName}</option>
                       ))}
@@ -130,7 +270,12 @@ const Report = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">事故时间</label>
-                    <input type="datetime-local" className="input-field" />
+                    <input 
+                      type="datetime-local" 
+                      className="input-field"
+                      value={formData.accidentTime}
+                      onChange={(e) => setFormData({ ...formData, accidentTime: e.target.value })}
+                    />
                   </div>
                 </div>
                 <div>
@@ -139,23 +284,48 @@ const Report = () => {
                     事故地点
                   </label>
                   <div className="flex gap-3">
-                    <input type="text" className="input-field flex-1" placeholder="请输入或在地图上选择事故地点" />
+                    <input 
+                      type="text" 
+                      className="input-field flex-1" 
+                      placeholder="请输入或在地图上选择事故地点"
+                      value={formData.location}
+                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    />
                     <button className="btn-outline whitespace-nowrap">地图选点</button>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">经度</label>
-                      <input type="number" step="0.000001" className="input-field text-sm" placeholder="如：116.4074" />
+                      <input 
+                        type="number" 
+                        step="0.000001" 
+                        className="input-field text-sm" 
+                        placeholder="如：116.4074"
+                        value={formData.lng || ''}
+                        onChange={(e) => setFormData({ ...formData, lng: Number(e.target.value) })}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">纬度</label>
-                      <input type="number" step="0.000001" className="input-field text-sm" placeholder="如：39.9042" />
+                      <input 
+                        type="number" 
+                        step="0.000001" 
+                        className="input-field text-sm" 
+                        placeholder="如：39.9042"
+                        value={formData.lat || ''}
+                        onChange={(e) => setFormData({ ...formData, lat: Number(e.target.value) })}
+                      />
                     </div>
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">事故描述</label>
-                  <textarea className="input-field h-24" placeholder="请详细描述事故发生经过、原因等" />
+                  <textarea 
+                    className="input-field h-24" 
+                    placeholder="请详细描述事故发生经过、原因等"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  />
                 </div>
               </div>
 
@@ -186,11 +356,7 @@ const Report = () => {
                             <label className="block text-xs text-gray-500 mb-1">类型</label>
                             <select
                               value={item.type}
-                              onChange={(e) => {
-                                const newItems = [...lossItems];
-                                newItems[index].type = e.target.value;
-                                setLossItems(newItems);
-                              }}
+                              onChange={(e) => updateLossItem(index, 'type', e.target.value)}
                               className="input-field text-sm"
                             >
                               <option value="drone">无人机</option>
@@ -200,26 +366,40 @@ const Report = () => {
                           </div>
                           <div className="col-span-2">
                             <label className="block text-xs text-gray-500 mb-1">物品名称</label>
-                            <input type="text" className="input-field text-sm" placeholder="如：机身、云台相机" />
+                            <input 
+                              type="text" 
+                              className="input-field text-sm" 
+                              placeholder="如：机身、云台相机"
+                              value={item.name}
+                              onChange={(e) => updateLossItem(index, 'name', e.target.value)}
+                            />
                           </div>
                           <div>
                             <label className="block text-xs text-gray-500 mb-1">数量</label>
-                            <input type="number" min="1" className="input-field text-sm" defaultValue="1" />
+                            <input 
+                              type="number" 
+                              min="1" 
+                              className="input-field text-sm"
+                              value={item.quantity}
+                              onChange={(e) => updateLossItem(index, 'quantity', Number(e.target.value))}
+                            />
                           </div>
                           <div>
                             <label className="block text-xs text-gray-500 mb-1">单价（元）</label>
-                            <input type="number" className="input-field text-sm" placeholder="0" />
+                            <input 
+                              type="number" 
+                              className="input-field text-sm" 
+                              placeholder="0"
+                              value={item.unitPrice}
+                              onChange={(e) => updateLossItem(index, 'unitPrice', Number(e.target.value))}
+                            />
                           </div>
                         </div>
                         <div className="mt-3">
                           <label className="block text-xs text-gray-500 mb-1">损坏程度</label>
                           <select
                             value={item.damageDegree}
-                            onChange={(e) => {
-                              const newItems = [...lossItems];
-                              newItems[index].damageDegree = e.target.value;
-                              setLossItems(newItems);
-                            }}
+                            onChange={(e) => updateLossItem(index, 'damageDegree', e.target.value)}
                             className="input-field text-sm"
                           >
                             <option value="minor">轻微损坏</option>
@@ -261,11 +441,7 @@ const Report = () => {
                             <label className="block text-xs text-gray-500 mb-1">责任类型</label>
                             <select
                               value={item.type}
-                              onChange={(e) => {
-                                const newItems = [...thirdParties];
-                                newItems[index].type = e.target.value;
-                                setThirdParties(newItems);
-                              }}
+                              onChange={(e) => updateThirdParty(index, 'type', e.target.value)}
                               className="input-field text-sm"
                             >
                               <option value="property">财产损失</option>
@@ -274,16 +450,33 @@ const Report = () => {
                           </div>
                           <div>
                             <label className="block text-xs text-gray-500 mb-1">预估损失（元）</label>
-                            <input type="number" className="input-field text-sm" placeholder="0" />
+                            <input 
+                              type="number" 
+                              className="input-field text-sm" 
+                              placeholder="0"
+                              value={item.estimatedLoss}
+                              onChange={(e) => updateThirdParty(index, 'estimatedLoss', Number(e.target.value))}
+                            />
                           </div>
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">名称</label>
-                          <input type="text" className="input-field text-sm" placeholder="如：XX公司/XX个人" />
+                          <input 
+                            type="text" 
+                            className="input-field text-sm" 
+                            placeholder="如：XX公司/XX个人"
+                            value={item.name}
+                            onChange={(e) => updateThirdParty(index, 'name', e.target.value)}
+                          />
                         </div>
                         <div className="mt-3">
                           <label className="block text-xs text-gray-500 mb-1">情况描述</label>
-                          <textarea className="input-field text-sm h-20" placeholder="请描述第三方损失情况" />
+                          <textarea 
+                            className="input-field text-sm h-20" 
+                            placeholder="请描述第三方损失情况"
+                            value={item.description}
+                            onChange={(e) => updateThirdParty(index, 'description', e.target.value)}
+                          />
                         </div>
                       </div>
                     ))}
@@ -293,9 +486,22 @@ const Report = () => {
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
               <button onClick={() => setShowAddReport(false)} className="btn-secondary">取消</button>
-              <button className="btn-primary">
-                <Send className="w-4 h-4 mr-2 inline" />
-                提交报案
+              <button 
+                onClick={handleSubmit} 
+                disabled={submitting}
+                className="btn-primary"
+              >
+                {submitting ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2 inline" />
+                    提交中...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2 inline" />
+                    提交报案
+                  </>
+                )}
               </button>
             </div>
           </div>

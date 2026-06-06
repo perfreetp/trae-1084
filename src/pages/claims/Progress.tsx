@@ -8,20 +8,110 @@ import {
   User,
   Calendar,
   Download,
-  MessageSquare
+  MessageSquare,
+  X,
+  Save
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAppStore } from '../../store';
-import { formatCurrency, formatDateTime } from '../../utils';
+import { formatCurrency, formatDateTime, generateId } from '../../utils';
+import type { Claim, Dispute } from '../../types';
 
 const Progress = () => {
-  const { claims, accidents, disputes } = useAppStore();
+  const { claims, accidents, disputes, addDispute, updateClaim, updateAccident } = useAppStore();
   const [selectedClaim, setSelectedClaim] = useState(claims[0]?.id || '');
+  const [showCalculate, setShowCalculate] = useState(false);
+  const [showDispute, setShowDispute] = useState(false);
+  const [calculateAmount, setCalculateAmount] = useState(0);
+  const [disputeForm, setDisputeForm] = useState({ title: '', description: '' });
 
   const currentClaim = claims.find(c => c.id === selectedClaim);
   const accident = accidents.find(a => a.id === currentClaim?.accidentId);
   const claimDisputes = disputes.filter(d => d.claimId === selectedClaim);
+
+  const canCalculate = currentClaim && ['surveying', 'auditing'].includes(currentClaim.status);
+  const canClose = currentClaim && currentClaim.status === 'approved' && currentClaim.actualAmount > 0;
+
+  const handleCalculate = () => {
+    if (!currentClaim || calculateAmount <= 0) return;
+
+    const updatedAuditNodes = currentClaim.auditNodes.map(node => {
+      if (node.id === '3') {
+        return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: '现场查勘完成' };
+      }
+      if (node.id === '4') {
+        return { ...node, status: 'current' as const, time: formatDateTime(new Date().toISOString()) };
+      }
+      return node;
+    });
+
+    const updatedClaim: Claim = {
+      ...currentClaim,
+      actualAmount: calculateAmount,
+      status: 'auditing',
+      auditNodes: updatedAuditNodes
+    };
+
+    updateClaim(updatedClaim);
+    setShowCalculate(false);
+    setCalculateAmount(0);
+  };
+
+  const handleCloseCase = () => {
+    if (!currentClaim) return;
+
+    const updatedAuditNodes = currentClaim.auditNodes.map(node => {
+      if (node.id === '4') {
+        return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: `赔付金额：${formatCurrency(currentClaim.actualAmount)}` };
+      }
+      if (node.id === '5') {
+        return { ...node, status: 'completed' as const, time: formatDateTime(new Date().toISOString()), comment: '已结案，赔付完成' };
+      }
+      return node;
+    });
+
+    const updatedClaim: Claim = {
+      ...currentClaim,
+      status: 'closed',
+      auditNodes: updatedAuditNodes
+    };
+
+    updateClaim(updatedClaim);
+
+    if (accident) {
+      updateAccident({
+        ...accident,
+        status: 'closed'
+      });
+    }
+  };
+
+  const handleSubmitDispute = () => {
+    if (!currentClaim || !disputeForm.title || !disputeForm.description) return;
+
+    const newDispute: Dispute = {
+      id: generateId(),
+      claimId: currentClaim.id,
+      claimNo: currentClaim.claimNo,
+      title: disputeForm.title,
+      description: disputeForm.description,
+      status: 'open',
+      createTime: new Date().toISOString(),
+      handler: '待分配'
+    };
+
+    addDispute(newDispute);
+
+    const updatedClaim: Claim = {
+      ...currentClaim,
+      status: 'disputed'
+    };
+    updateClaim(updatedClaim);
+
+    setDisputeForm({ title: '', description: '' });
+    setShowDispute(false);
+  };
 
   return (
     <div>
@@ -34,7 +124,7 @@ const Progress = () => {
         <div className="lg:col-span-1">
           <div className="card">
             <h3 className="font-semibold text-gray-800 mb-4">赔案列表</h3>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[600px] overflow-y-auto">
               {claims.map((claim) => (
                 <div
                   key={claim.id}
@@ -90,10 +180,31 @@ const Progress = () => {
                   <div className="p-4 bg-gray-50 rounded-lg text-center">
                     <p className="text-sm text-gray-500">查勘时间</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">
-                      {currentClaim.surveyTime || '-'}
+                      {currentClaim.surveyTime ? formatDateTime(currentClaim.surveyTime) : '-'}
                     </p>
                   </div>
                 </div>
+
+                {canCalculate && (
+                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-blue-800">赔付测算</p>
+                        <p className="text-sm text-blue-600">该案件已完成查勘，可以进行赔付金额测算</p>
+                      </div>
+                      <button 
+                        className="btn-primary text-sm"
+                        onClick={() => {
+                          setCalculateAmount(Math.round(currentClaim.estimatedAmount * 0.8));
+                          setShowCalculate(true);
+                        }}
+                      >
+                        <DollarSign className="w-4 h-4 mr-1 inline" />
+                        赔付测算
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {accident && (
                   <div className="p-4 bg-primary-50 rounded-lg mb-6">
@@ -188,7 +299,10 @@ const Progress = () => {
               )}
 
               <div className="flex items-center justify-between">
-                <button className="btn-secondary">
+                <button 
+                  className="btn-secondary"
+                  onClick={() => setShowDispute(true)}
+                >
                   <MessageSquare className="w-4 h-4 mr-2 inline" />
                   提交异议
                 </button>
@@ -197,6 +311,15 @@ const Progress = () => {
                     <FileText className="w-4 h-4 mr-2 inline" />
                     查看详情
                   </button>
+                  {canClose && (
+                    <button 
+                      className="btn-accent"
+                      onClick={handleCloseCase}
+                    >
+                      <Check className="w-4 h-4 mr-2 inline" />
+                      结案确认
+                    </button>
+                  )}
                   {currentClaim.status === 'closed' && (
                     <button className="btn-primary">
                       <Download className="w-4 h-4 mr-2 inline" />
@@ -209,6 +332,88 @@ const Progress = () => {
           )}
         </div>
       </div>
+
+      {showCalculate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">赔付测算</h3>
+              <button onClick={() => setShowCalculate(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">预估损失金额</p>
+                <p className="text-xl font-bold text-gray-800">{formatCurrency(currentClaim?.estimatedAmount || 0)}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">核定赔付金额（元）</label>
+                <input 
+                  type="number" 
+                  className="input-field text-lg"
+                  value={calculateAmount}
+                  onChange={(e) => setCalculateAmount(Number(e.target.value))}
+                  placeholder="请输入核定赔付金额"
+                />
+              </div>
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  请根据查勘报告、损失清单和保险条款，合理测算赔付金额。
+                </p>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button onClick={() => setShowCalculate(false)} className="btn-secondary">取消</button>
+              <button onClick={handleCalculate} className="btn-primary">
+                <Save className="w-4 h-4 mr-2 inline" />
+                保存测算
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDispute && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">提交异议</h3>
+              <button onClick={() => setShowDispute(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">异议标题</label>
+                <input 
+                  type="text" 
+                  className="input-field"
+                  value={disputeForm.title}
+                  onChange={(e) => setDisputeForm({ ...disputeForm, title: e.target.value })}
+                  placeholder="请简要描述异议内容"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">详细描述</label>
+                <textarea 
+                  className="input-field h-32"
+                  value={disputeForm.description}
+                  onChange={(e) => setDisputeForm({ ...disputeForm, description: e.target.value })}
+                  placeholder="请详细描述您的异议和诉求"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button onClick={() => setShowDispute(false)} className="btn-secondary">取消</button>
+              <button onClick={handleSubmitDispute} className="btn-accent">
+                <MessageSquare className="w-4 h-4 mr-2 inline" />
+                提交异议
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

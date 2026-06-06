@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plane,
   Shield,
@@ -13,7 +14,8 @@ import {
 import PageHeader from '../../components/ui/PageHeader';
 import { useAppStore } from '../../store';
 import { mockInsurancePlans } from '../../data/mockData';
-import { formatCurrency } from '../../utils';
+import { formatCurrency, generateId } from '../../utils';
+import type { Policy, Drone } from '../../types';
 
 const steps = [
   { id: 1, title: '机型登记', icon: Plane },
@@ -23,6 +25,11 @@ const steps = [
 ];
 
 const Apply = () => {
+  const navigate = useNavigate();
+  const addPolicy = useAppStore((state) => state.addPolicy);
+  const addDrone = useAppStore((state) => state.addDrone);
+  const policies = useAppStore((state) => state.policies);
+  
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [drones, setDrones] = useState<any[]>([
@@ -31,6 +38,7 @@ const Apply = () => {
   const [showAddDrone, setShowAddDrone] = useState(false);
   const [newDrone, setNewDrone] = useState({ model: '', serialNumber: '', payload: '', value: 0 });
   const [quoteResult, setQuoteResult] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleNext = () => {
     if (currentStep === 2 && selectedPlan) {
@@ -40,6 +48,7 @@ const Apply = () => {
         const premium = Math.round(plan.basePremium * (1 + totalValue / 500000));
         setQuoteResult({
           plan: plan.name,
+          planId: plan.id,
           coverageAmount: plan.coverageAmount,
           basePremium: plan.basePremium,
           adjustedPremium: premium,
@@ -65,6 +74,52 @@ const Apply = () => {
 
   const handleRemoveDrone = (id: string) => {
     setDrones(drones.filter(d => d.id !== id));
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedPlan || !quoteResult) return;
+    
+    setSubmitting(true);
+    
+    const plan = mockInsurancePlans.find(p => p.id === selectedPlan);
+    const policyNo = `POL-${new Date().getFullYear()}-${String(policies.length + 1).padStart(5, '0')}`;
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setFullYear(endDate.getFullYear() + 1);
+
+    drones.forEach(drone => {
+      const newDroneData: Drone = {
+        id: generateId(),
+        model: drone.model,
+        serialNumber: drone.serialNumber,
+        payload: drone.payload,
+        purchaseDate: today.toISOString().split('T')[0],
+        purchaseAmount: drone.value,
+        status: 'insured'
+      };
+      addDrone(newDroneData);
+    });
+
+    const newPolicy: Policy = {
+      id: generateId(),
+      policyNo,
+      operatorName: '飞翔航空科技有限公司',
+      droneModel: drones.map(d => d.model).join('、'),
+      droneId: drones[0]?.id || '',
+      planName: plan?.name || quoteResult.plan,
+      coverageAmount: quoteResult.coverageAmount,
+      premium: quoteResult.adjustedPremium,
+      startDate: today.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+      status: 'pending'
+    };
+
+    addPolicy(newPolicy);
+    
+    setTimeout(() => {
+      setSubmitting(false);
+      navigate('/insurance/policies');
+    }, 1000);
   };
 
   return (
@@ -342,6 +397,18 @@ const Apply = () => {
                 </div>
               </div>
               
+              <div>
+                <h4 className="font-medium text-gray-700 mb-3">投保无人机</h4>
+                <div className="space-y-2">
+                  {drones.map((drone) => (
+                    <div key={drone.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <span className="text-sm font-medium text-gray-800">{drone.model}</span>
+                      <span className="text-sm text-gray-500">SN: {drone.serialNumber} | {formatCurrency(drone.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
               <div className="flex items-start space-x-3">
                 <input type="checkbox" className="mt-1" defaultChecked />
                 <p className="text-sm text-gray-600">
@@ -355,8 +422,8 @@ const Apply = () => {
         <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
           <button
             onClick={handlePrev}
-            disabled={currentStep === 1}
-            className={`btn-secondary ${currentStep === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={currentStep === 1 || submitting}
+            className={`btn-secondary ${(currentStep === 1 || submitting) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <ChevronLeft className="w-4 h-4 mr-2 inline" />
             上一步
@@ -372,9 +439,22 @@ const Apply = () => {
               <ChevronRight className="w-4 h-4 ml-2 inline" />
             </button>
           ) : (
-            <button className="btn-accent">
-              <FileCheck className="w-4 h-4 mr-2 inline" />
-              提交投保申请
+            <button 
+              onClick={handleSubmit} 
+              disabled={submitting}
+              className="btn-accent"
+            >
+              {submitting ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2 inline" />
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <FileCheck className="w-4 h-4 mr-2 inline" />
+                  提交投保申请
+                </>
+              )}
             </button>
           )}
         </div>

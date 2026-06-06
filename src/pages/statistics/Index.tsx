@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   BarChart,
   Bar,
@@ -22,35 +22,135 @@ import {
   TrendingUp,
   Clock,
   Download,
-  Calendar
+  Calendar,
+  Users,
+  MapPin,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import StatCard from '../../components/ui/StatCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAppStore } from '../../store';
-import { mockStatistics, mockChartData, statusLabels } from '../../data/mockData';
 import { formatCurrency, formatDateTime } from '../../utils';
 
 const COLORS = ['#0F3460', '#E94560', '#27AE60', '#F39C12', '#9B59B6'];
 
-const accidentReasonData = [
-  { name: '操作失误', value: 8 },
-  { name: '设备故障', value: 5 },
-  { name: '天气原因', value: 4 },
-  { name: '信号干扰', value: 3 },
-  { name: '其他', value: 3 },
-];
-
 const Statistics = () => {
-  const { disputes, policies, claims } = useAppStore();
+  const { disputes, policies, claims, accidents, flightTasks } = useAppStore();
   const [activeTab, setActiveTab] = useState('overview');
 
+  const totalPremium = policies.reduce((sum, p) => sum + p.premium, 0);
+  const totalClaimAmount = claims.reduce((sum, c) => sum + c.actualAmount, 0);
+  const settledClaims = claims.filter(c => c.status === 'closed').length;
+  const pendingClaims = claims.filter(c => ['pending', 'surveying', 'auditing'].includes(c.status)).length;
+
   const policyStatusData = [
-    { name: '有效', value: policies.filter(p => p.status === 'active').length },
-    { name: '待生效', value: policies.filter(p => p.status === 'pending').length },
-    { name: '待续保', value: policies.filter(p => p.status === 'renewal').length },
-    { name: '已过期', value: policies.filter(p => p.status === 'expired').length },
+    { name: '有效', value: policies.filter(p => p.status === 'active').length, color: '#27AE60' },
+    { name: '待审核', value: policies.filter(p => p.status === 'pending').length, color: '#F39C12' },
+    { name: '待续保', value: policies.filter(p => p.status === 'renewal').length, color: '#9B59B6' },
+    { name: '已过期', value: policies.filter(p => p.status === 'expired').length, color: '#E94560' },
   ];
+
+  const accidentReasonData = useMemo(() => {
+    const reasons: Record<string, number> = {
+      '操作失误': 0,
+      '设备故障': 0,
+      '天气原因': 0,
+      '信号干扰': 0,
+      '其他': 0
+    };
+    accidents.forEach(a => {
+      const desc = a.description.toLowerCase();
+      if (desc.includes('操作') || desc.includes('失误') || desc.includes('碰撞')) {
+        reasons['操作失误']++;
+      } else if (desc.includes('设备') || desc.includes('故障') || desc.includes('电池')) {
+        reasons['设备故障']++;
+      } else if (desc.includes('天气') || desc.includes('风') || desc.includes('雨')) {
+        reasons['天气原因']++;
+      } else if (desc.includes('信号') || desc.includes('干扰') || desc.includes('失联')) {
+        reasons['信号干扰']++;
+      } else {
+        reasons['其他']++;
+      }
+    });
+    return Object.entries(reasons)
+      .filter(([, value]) => value > 0)
+      .map(([name, value]) => ({ name, value }));
+  }, [accidents]);
+
+  const planStatistics = useMemo(() => {
+    const planMap: Record<string, { count: number; premium: number }> = {};
+    policies.forEach(p => {
+      if (!planMap[p.planName]) {
+        planMap[p.planName] = { count: 0, premium: 0 };
+      }
+      planMap[p.planName].count++;
+      planMap[p.planName].premium += p.premium;
+    });
+    return Object.entries(planMap).map(([name, data]) => ({
+      name,
+      保单数: data.count,
+      保费: data.premium
+    }));
+  }, [policies]);
+
+  const operatorStatistics = useMemo(() => {
+    const operatorMap: Record<string, { count: number; premium: number }> = {};
+    policies.forEach(p => {
+      if (!operatorMap[p.operatorName]) {
+        operatorMap[p.operatorName] = { count: 0, premium: 0 };
+      }
+      operatorMap[p.operatorName].count++;
+      operatorMap[p.operatorName].premium += p.premium;
+    });
+    return Object.entries(operatorMap).map(([name, data]) => ({
+      name,
+      保单数: data.count,
+      保费: data.premium
+    }));
+  }, [policies]);
+
+  const monthlyTrendData = useMemo(() => {
+    const monthMap: Record<string, { policies: number; premium: number; accidents: number; claims: number }> = {};
+    policies.forEach(p => {
+      const month = p.startDate.substring(0, 7);
+      if (!monthMap[month]) {
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0 };
+      }
+      monthMap[month].policies++;
+      monthMap[month].premium += p.premium;
+    });
+    accidents.forEach(a => {
+      const month = a.accidentTime.substring(0, 7);
+      if (!monthMap[month]) {
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0 };
+      }
+      monthMap[month].accidents++;
+    });
+    claims.forEach(c => {
+      const month = c.createTime.substring(0, 7);
+      if (!monthMap[month]) {
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0 };
+      }
+      monthMap[month].claims++;
+    });
+    return Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({
+        month: month.replace('-', '年') + '月',
+        ...data
+      }));
+  }, [policies, accidents, claims]);
+
+  const claimStatusData = [
+    { name: '待处理', value: claims.filter(c => c.status === 'pending').length, color: '#F39C12' },
+    { name: '查勘中', value: claims.filter(c => c.status === 'surveying').length, color: '#3498DB' },
+    { name: '审核中', value: claims.filter(c => c.status === 'auditing').length, color: '#9B59B6' },
+    { name: '已赔付', value: claims.filter(c => c.status === 'paid').length, color: '#27AE60' },
+    { name: '已结案', value: claims.filter(c => c.status === 'closed').length, color: '#0F3460' },
+    { name: '有争议', value: claims.filter(c => c.status === 'disputed').length, color: '#E94560' },
+  ].filter(d => d.value > 0);
 
   return (
     <div>
@@ -97,33 +197,33 @@ const Statistics = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatCard
               title="累计保单"
-              value={mockStatistics.totalPolicies}
+              value={policies.length}
               icon={Shield}
-              trend="12%"
+              trend="+12%"
               trendUp={true}
               color="blue"
             />
             <StatCard
               title="保费收入"
-              value={formatCurrency(mockStatistics.totalPremium)}
+              value={formatCurrency(totalPremium)}
               icon={DollarSign}
-              trend="8%"
+              trend="+8%"
               trendUp={true}
               color="green"
             />
             <StatCard
               title="事故报案"
-              value={mockStatistics.totalAccidents}
+              value={accidents.length}
               icon={AlertTriangle}
-              trend="5%"
+              trend="-5%"
               trendUp={false}
               color="orange"
             />
             <StatCard
               title="累计赔付"
-              value={formatCurrency(mockStatistics.totalClaimAmount)}
+              value={formatCurrency(totalClaimAmount)}
               icon={TrendingUp}
-              trend="15%"
+              trend="+15%"
               trendUp={true}
               color="purple"
             />
@@ -134,7 +234,7 @@ const Statistics = () => {
               <h3 className="font-semibold text-gray-800 mb-4">业务趋势</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={mockChartData}>
+                  <LineChart data={monthlyTrendData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
                     <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
@@ -157,7 +257,7 @@ const Statistics = () => {
               <h3 className="font-semibold text-gray-800 mb-4">保费收入趋势</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={mockChartData}>
+                  <BarChart data={monthlyTrendData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
                     <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
@@ -192,7 +292,7 @@ const Statistics = () => {
                       dataKey="value"
                     >
                       {policyStatusData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
                     <Tooltip />
@@ -202,7 +302,7 @@ const Statistics = () => {
               <div className="flex flex-wrap justify-center gap-3 mt-4">
                 {policyStatusData.map((item, index) => (
                   <div key={item.name} className="flex items-center">
-                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[index] }} />
+                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: item.color }} />
                     <span className="text-xs text-gray-600">{item.name}: {item.value}</span>
                   </div>
                 ))}
@@ -234,7 +334,7 @@ const Statistics = () => {
               <div className="flex flex-wrap justify-center gap-3 mt-4">
                 {accidentReasonData.map((item, index) => (
                   <div key={item.name} className="flex items-center">
-                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[index] }} />
+                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                     <span className="text-xs text-gray-600">{item.name}: {item.value}</span>
                   </div>
                 ))}
@@ -247,25 +347,25 @@ const Statistics = () => {
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <span className="text-sm text-gray-600">结案率</span>
                   <span className="text-lg font-bold text-green-600">
-                    {Math.round((mockStatistics.settledClaims / mockStatistics.totalAccidents) * 100)}%
+                    {accidents.length > 0 ? Math.round((settledClaims / accidents.length) * 100) : 0}%
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <span className="text-sm text-gray-600">案均赔付</span>
                   <span className="text-lg font-bold text-primary-700">
-                    {formatCurrency(Math.round(mockStatistics.totalClaimAmount / mockStatistics.settledClaims))}
+                    {settledClaims > 0 ? formatCurrency(Math.round(totalClaimAmount / settledClaims)) : formatCurrency(0)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <span className="text-sm text-gray-600">待处理案件</span>
                   <span className="text-lg font-bold text-orange-600">
-                    {mockStatistics.pendingClaims}
+                    {pendingClaims}
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <span className="text-sm text-gray-600">争议案件</span>
                   <span className="text-lg font-bold text-red-600">
-                    {mockStatistics.disputeCount}
+                    {disputes.length}
                   </span>
                 </div>
               </div>
@@ -274,58 +374,332 @@ const Statistics = () => {
         </div>
       )}
 
-      {activeTab === 'disputes' && (
-        <div className="card">
-          <h3 className="font-semibold text-gray-800 mb-4">争议记录</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">赔案号</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">争议标题</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">描述</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">状态</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">处理人</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">创建时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {disputes.map((dispute) => (
-                  <tr key={dispute.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-4 px-4">
-                      <span className="font-medium text-primary-700">{dispute.claimNo}</span>
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-800 font-medium">{dispute.title}</td>
-                    <td className="py-4 px-4 text-sm text-gray-600 max-w-xs truncate">{dispute.description}</td>
-                    <td className="py-4 px-4">
-                      <span className={`status-badge ${
-                        dispute.status === 'resolved' ? 'status-active' : 
-                        dispute.status === 'processing' ? 'status-pending' : 'status-expired'
-                      }`}>
-                        {dispute.status === 'open' ? '待处理' : dispute.status === 'processing' ? '处理中' : '已解决'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-700">{dispute.handler}</td>
-                    <td className="py-4 px-4 text-sm text-gray-500">{formatDateTime(dispute.createTime)}</td>
+      {activeTab === 'policies' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Shield className="w-6 h-6 text-primary-700" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{policies.length}</p>
+              <p className="text-sm text-gray-500">总保单数</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{policies.filter(p => p.status === 'active').length}</p>
+              <p className="text-sm text-gray-500">有效保单</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Clock className="w-6 h-6 text-yellow-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{policies.filter(p => p.status === 'pending').length}</p>
+              <p className="text-sm text-gray-500">待审核保单</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <DollarSign className="w-6 h-6 text-blue-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalPremium)}</p>
+              <p className="text-sm text-gray-500">总保费收入</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">按保障方案统计</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={planStatistics}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                      }}
+                    />
+                    <Legend />
+                    <Bar dataKey="保单数" fill="#0F3460" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">按运营商统计</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={operatorStatistics} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis type="number" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} stroke="#9CA3AF" width={120} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                      }}
+                    />
+                    <Legend />
+                    <Bar dataKey="保费" fill="#E94560" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-gray-800 mb-4">保单详情列表</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">保单号</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">运营商</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">无人机型号</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">保障方案</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">保费</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">状态</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">有效期</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {policies.map((policy) => (
+                    <tr key={policy.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-4 px-4">
+                        <span className="font-medium text-primary-700">{policy.policyNo}</span>
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{policy.operatorName}</td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{policy.droneModel}</td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{policy.planName}</td>
+                      <td className="py-4 px-4 text-sm font-medium text-gray-800">{formatCurrency(policy.premium)}</td>
+                      <td className="py-4 px-4">
+                        <StatusBadge status={policy.status} />
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-500">
+                        {policy.startDate} 至 {policy.endDate}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {(activeTab === 'policies' || activeTab === 'claims') && (
-        <div className="card">
-          <div className="text-center py-12">
-            <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 mb-2">
-              {activeTab === 'policies' ? '保单统计' : '理赔分析'}详细报表
-            </p>
-            <p className="text-sm text-gray-400">
-              该模块正在完善中，更多统计维度即将上线...
-            </p>
+      {activeTab === 'claims' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <AlertTriangle className="w-6 h-6 text-orange-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{accidents.length}</p>
+              <p className="text-sm text-gray-500">总报案数</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <FileText className="w-6 h-6 text-blue-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{claims.length}</p>
+              <p className="text-sm text-gray-500">总赔案数</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{settledClaims}</p>
+              <p className="text-sm text-gray-500">已结案数</p>
+            </div>
+            <div className="card text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <DollarSign className="w-6 h-6 text-red-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalClaimAmount)}</p>
+              <p className="text-sm text-gray-500">总赔付金额</p>
+            </div>
           </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">赔案状态分布</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={claimStatusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      {claimStatusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-wrap justify-center gap-3 mt-4">
+                {claimStatusData.map((item, index) => (
+                  <div key={item.name} className="flex items-center">
+                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: item.color }} />
+                    <span className="text-xs text-gray-600">{item.name}: {item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="font-semibold text-gray-800 mb-4">赔付金额趋势</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={monthlyTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                      }}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="accidents" name="事故数" stroke="#E94560" strokeWidth={2} dot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="claims" name="赔案数" stroke="#F39C12" strokeWidth={2} dot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-gray-800 mb-4">理赔分析指标</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500 mb-1">结案率</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {accidents.length > 0 ? Math.round((settledClaims / accidents.length) * 100) : 0}%
+                </p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500 mb-1">案均赔付</p>
+                <p className="text-2xl font-bold text-primary-700">
+                  {settledClaims > 0 ? formatCurrency(Math.round(totalClaimAmount / settledClaims)) : formatCurrency(0)}
+                </p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500 mb-1">赔付率</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {totalPremium > 0 ? Math.round((totalClaimAmount / totalPremium) * 100) : 0}%
+                </p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500 mb-1">争议率</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {claims.length > 0 ? Math.round((disputes.length / claims.length) * 100) : 0}%
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-gray-800 mb-4">赔案详情列表</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">赔案号</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">报案号</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">预估损失</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">核定赔付</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">查勘员</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">状态</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">创建时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {claims.map((claim) => (
+                    <tr key={claim.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-4 px-4">
+                        <span className="font-medium text-accent-600">{claim.claimNo}</span>
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{claim.reportNo}</td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{formatCurrency(claim.estimatedAmount)}</td>
+                      <td className="py-4 px-4 text-sm font-medium text-green-600">
+                        {claim.actualAmount > 0 ? formatCurrency(claim.actualAmount) : '-'}
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{claim.surveyor || '-'}</td>
+                      <td className="py-4 px-4">
+                        <StatusBadge status={claim.status} />
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-500">
+                        {formatDateTime(claim.createTime)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'disputes' && (
+        <div className="card">
+          <h3 className="font-semibold text-gray-800 mb-4">争议记录</h3>
+          {disputes.length === 0 ? (
+            <div className="text-center py-12">
+              <XCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">暂无争议记录</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">赔案号</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">争议标题</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">描述</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">状态</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">处理人</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">创建时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {disputes.map((dispute) => (
+                    <tr key={dispute.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-4 px-4">
+                        <span className="font-medium text-primary-700">{dispute.claimNo}</span>
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-800 font-medium">{dispute.title}</td>
+                      <td className="py-4 px-4 text-sm text-gray-600 max-w-xs truncate">{dispute.description}</td>
+                      <td className="py-4 px-4">
+                        <span className={`status-badge ${
+                          dispute.status === 'resolved' ? 'status-active' : 
+                          dispute.status === 'processing' ? 'status-pending' : 'status-expired'
+                        }`}>
+                          {dispute.status === 'open' ? '待处理' : dispute.status === 'processing' ? '处理中' : '已解决'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-sm text-gray-700">{dispute.handler}</td>
+                      <td className="py-4 px-4 text-sm text-gray-500">{formatDateTime(dispute.createTime)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
