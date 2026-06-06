@@ -83,11 +83,12 @@ export interface Material {
   id: string;
   accidentId: string;
   type: 'photo' | 'video' | 'document' | 'flight_data';
-  url: string;
   name: string;
+  url: string;
   uploadTime: string;
+  uploader: string;
   auditStatus: 'pending' | 'approved' | 'rejected';
-  auditComment?: string;
+  auditRemark?: string;
 }
 
 export interface Survey {

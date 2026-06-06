@@ -4,6 +4,7 @@ import {
   Calendar,
   MapPin,
   User,
+  Users,
   Clock,
   FileText,
   Plus,
@@ -23,6 +24,7 @@ const Survey = () => {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAssignSurveyor, setShowAssignSurveyor] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedSurveyor, setSelectedSurveyor] = useState<string>('all');
   const [formData, setFormData] = useState({
     claimId: '',
     surveyorId: '',
@@ -41,7 +43,17 @@ const Survey = () => {
   const surveyClaims = claims.filter(c => ['pending', 'surveying'].includes(c.status));
   
   const today = new Date().toISOString().split('T')[0];
-  const selectedDateSurveys = surveys.filter(s => s.surveyTime.startsWith(selectedDate));
+  const dateSurveys = surveys.filter(s => s.surveyTime.startsWith(selectedDate));
+  const selectedDateSurveys = selectedSurveyor === 'all' 
+    ? dateSurveys 
+    : dateSurveys.filter(s => {
+        const surveyor = surveyors.find(sv => sv.id === selectedSurveyor);
+        return s.surveyor === surveyor?.name;
+      });
+
+  const getSurveyorDayCount = (surveyorName: string) => {
+    return dateSurveys.filter(s => s.surveyor === surveyorName).length;
+  };
 
   const formatDateLabel = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -301,24 +313,59 @@ const Survey = () => {
         <div className="space-y-6">
           <div className="card">
             <h3 className="font-semibold text-gray-800 mb-4">查勘员排班</h3>
+            <p className="text-xs text-gray-500 mb-3">点击查勘员可筛选当日任务</p>
             <div className="space-y-3">
+              <button
+                onClick={() => setSelectedSurveyor('all')}
+                className={`w-full flex items-center justify-between p-3 rounded-lg transition-all ${
+                  selectedSurveyor === 'all' 
+                    ? 'bg-primary-50 border-2 border-primary-500' 
+                    : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                    <Users className="w-5 h-5 text-primary-700" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-medium text-gray-800 text-sm">全部查勘员</p>
+                    <p className="text-xs text-gray-500">查看所有查勘安排</p>
+                  </div>
+                </div>
+                <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full font-medium">
+                  {dateSurveys.length} 项
+                </span>
+              </button>
               {surveyors.map((surveyor) => (
-                <div key={surveyor.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <button
+                  key={surveyor.id}
+                  onClick={() => setSelectedSurveyor(surveyor.id)}
+                  className={`w-full flex items-center justify-between p-3 rounded-lg transition-all ${
+                    selectedSurveyor === surveyor.id 
+                      ? 'bg-primary-50 border-2 border-primary-500' 
+                      : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                  }`}
+                >
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
                       <span className="text-primary-700 font-medium">
                         {surveyor.name.charAt(0)}
                       </span>
                     </div>
-                    <div>
+                    <div className="text-left">
                       <p className="font-medium text-gray-800 text-sm">{surveyor.name}</p>
                       <p className="text-xs text-gray-500">{surveyor.phone}</p>
                     </div>
                   </div>
-                  <span className={`status-badge ${surveyor.status === 'available' ? 'status-active' : 'status-pending'}`}>
-                    {surveyor.status === 'available' ? '空闲' : '忙碌'}
-                  </span>
-                </div>
+                  <div className="flex items-center space-x-2">
+                    <span className={`status-badge ${surveyor.status === 'available' ? 'status-active' : 'status-pending'}`}>
+                      {surveyor.status === 'available' ? '空闲' : '忙碌'}
+                    </span>
+                    <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full font-medium">
+                      今日 {getSurveyorDayCount(surveyor.name)} 项
+                    </span>
+                  </div>
+                </button>
               ))}
             </div>
           </div>

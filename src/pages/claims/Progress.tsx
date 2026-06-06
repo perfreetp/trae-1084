@@ -15,7 +15,7 @@ import {
 import PageHeader from '../../components/ui/PageHeader';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAppStore } from '../../store';
-import { formatCurrency, formatDateTime, generateId } from '../../utils';
+import { formatCurrency, formatDateTime, generateId, downloadFile, generateClosingReportHTML } from '../../utils';
 import type { Claim, Dispute } from '../../types';
 
 const Progress = () => {
@@ -35,6 +35,37 @@ const Progress = () => {
   const canCalculate = currentClaim && ['surveying', 'auditing'].includes(currentClaim.status) && currentClaim.actualAmount === 0;
   const canApprove = currentClaim && currentClaim.status === 'auditing' && currentClaim.actualAmount > 0;
   const canClose = currentClaim && currentClaim.status === 'approved' && currentClaim.actualAmount > 0;
+
+  const lossTypeLabels: Record<string, string> = {
+    drone: '无人机',
+    payload: '载荷设备',
+    other: '其他'
+  };
+
+  const thirdPartyTypeLabels: Record<string, string> = {
+    property: '财产损失',
+    person: '人员伤亡'
+  };
+
+  const handleDownloadClosingReport = () => {
+    if (!currentClaim || !accident) return;
+
+    const html = generateClosingReportHTML({
+      claimNo: currentClaim.claimNo,
+      reportNo: currentClaim.reportNo,
+      location: accident.location,
+      accidentTime: formatDateTime(accident.accidentTime),
+      actualAmount: currentClaim.actualAmount,
+      closeTime: currentClaim.closeTime ? formatDateTime(currentClaim.closeTime) : '-',
+      surveyor: currentClaim.surveyor || '-',
+      auditNodes: currentClaim.auditNodes,
+      disputes: claimDisputes,
+      lossItems: accident.lossItems,
+      thirdParties: accident.thirdParties
+    });
+
+    downloadFile(html, `结案报告书_${currentClaim.claimNo}.html`, 'text/html');
+  };
 
   const handleCalculate = () => {
     if (!currentClaim || calculateAmount <= 0) return;
@@ -378,7 +409,7 @@ const Progress = () => {
                     </button>
                   )}
                   {currentClaim.status === 'closed' && (
-                    <button className="btn-primary">
+                    <button className="btn-primary" onClick={handleDownloadClosingReport}>
                       <Download className="w-4 h-4 mr-2 inline" />
                       下载结案书
                     </button>
@@ -551,6 +582,57 @@ const Progress = () => {
               </div>
 
               <div>
+                <h4 className="font-medium text-gray-800 mb-3">赔付明细</h4>
+                {accident?.lossItems && accident.lossItems.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600 mb-2">损失清单：</p>
+                    <div className="space-y-2">
+                      {accident.lossItems.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div>
+                            <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full mr-2">
+                              {lossTypeLabels[item.type] || item.type}
+                            </span>
+                            <span className="text-sm font-medium text-gray-800">{item.name}</span>
+                            <span className="text-xs text-gray-500 ml-2">
+                              (损坏程度: {item.damageDegree === 'minor' ? '轻微' : item.damageDegree === 'moderate' ? '中度' : '严重'})
+                            </span>
+                          </div>
+                          <span className="text-sm font-medium text-accent-600">
+                            {formatCurrency(item.quantity * item.unitPrice)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {accident?.thirdParties && accident.thirdParties.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600 mb-2">第三方责任：</p>
+                    <div className="space-y-2">
+                      {accident.thirdParties.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                          <div>
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full mr-2">
+                              {thirdPartyTypeLabels[item.type] || item.type}
+                            </span>
+                            <span className="text-sm font-medium text-gray-800">{item.name}</span>
+                          </div>
+                          <span className="text-sm font-medium text-accent-600">
+                            {formatCurrency(item.estimatedLoss)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(!accident?.lossItems || accident.lossItems.length === 0) && 
+                 (!accident?.thirdParties || accident.thirdParties.length === 0) && (
+                  <p className="text-sm text-gray-400 text-center py-4">无损失明细</p>
+                )}
+              </div>
+
+              <div>
                 <h4 className="font-medium text-gray-800 mb-3">审核节点</h4>
                 <div className="space-y-2">
                   {currentClaim.auditNodes.map((node) => (
@@ -578,9 +660,9 @@ const Progress = () => {
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
               <button onClick={() => setShowClosingInfo(false)} className="btn-secondary">关闭</button>
-              <button className="btn-primary">
+              <button className="btn-primary" onClick={handleDownloadClosingReport}>
                 <Download className="w-4 h-4 mr-2 inline" />
-                下载PDF
+                下载结案书
               </button>
             </div>
           </div>

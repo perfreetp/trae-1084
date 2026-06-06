@@ -29,6 +29,7 @@ interface AppState {
   updateClaim: (claim: Claim) => void;
   updateAccident: (accident: Accident) => void;
   updateFlightTask: (task: FlightTask) => void;
+  updateMaterial: (material: Material) => void;
   resetStore: () => void;
 }
 
@@ -91,6 +92,10 @@ export const useAppStore = create<AppState>()(
       
       updateFlightTask: (updatedTask) => set((state) => ({
         flightTasks: state.flightTasks.map(t => t.id === updatedTask.id ? updatedTask : t)
+      })),
+      
+      updateMaterial: (updatedMaterial) => set((state) => ({
+        materials: state.materials.map(m => m.id === updatedMaterial.id ? updatedMaterial : m)
       })),
       
       resetStore: () => set({

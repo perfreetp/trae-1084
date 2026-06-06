@@ -18,10 +18,14 @@ import { formatDateTime, generateId } from '../../utils';
 import type { Material } from '../../types';
 
 const Materials = () => {
-  const { materials, accidents, addMaterial } = useAppStore();
+  const { materials, accidents, addMaterial, updateMaterial } = useAppStore();
   const [selectedAccident, setSelectedAccident] = useState(accidents[0]?.id || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const currentMaterial = materials.find(m => m.id === showRejectModal);
 
   const typeIcons: Record<string, any> = {
     photo: Image,
@@ -83,6 +87,36 @@ const Materials = () => {
 
   const handleSelectFileClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleApprove = (materialId: string) => {
+    const material = materials.find(m => m.id === materialId);
+    if (!material) return;
+
+    const updatedMaterial: Material = {
+      ...material,
+      auditStatus: 'approved',
+      auditRemark: '审核通过'
+    };
+    updateMaterial(updatedMaterial);
+  };
+
+  const handleOpenReject = (materialId: string) => {
+    setShowRejectModal(materialId);
+    setRejectReason('');
+  };
+
+  const handleReject = () => {
+    if (!currentMaterial || !rejectReason.trim()) return;
+
+    const updatedMaterial: Material = {
+      ...currentMaterial,
+      auditStatus: 'rejected',
+      auditRemark: rejectReason.trim()
+    };
+    updateMaterial(updatedMaterial);
+    setShowRejectModal(null);
+    setRejectReason('');
   };
 
   return (
@@ -203,15 +237,35 @@ const Materials = () => {
                       <p className="text-xs text-gray-500 mt-1">
                         {formatDateTime(material.uploadTime)}
                       </p>
+                      {material.auditRemark && material.auditStatus !== 'pending' && (
+                        <div className={`mt-2 p-2 text-xs rounded-lg ${
+                          material.auditStatus === 'approved' 
+                            ? 'bg-green-50 text-green-700 border border-green-200' 
+                            : 'bg-red-50 text-red-700 border border-red-200'
+                        }`}>
+                          <span className="font-medium">审核备注：</span>
+                          {material.auditRemark}
+                        </div>
+                      )}
                     </div>
-                    <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
-                      <button className="p-2 bg-white rounded-full text-gray-600 hover:text-primary-700 shadow-lg">
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 bg-white rounded-full text-gray-600 hover:text-red-500 shadow-lg">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {material.auditStatus === 'pending' && (
+                      <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
+                        <button 
+                          className="p-3 bg-white rounded-full text-green-600 hover:text-green-700 hover:bg-green-50 shadow-lg transition-all"
+                          onClick={() => handleApprove(material.id)}
+                          title="审核通过"
+                        >
+                          <Check className="w-5 h-5" />
+                        </button>
+                        <button 
+                          className="p-3 bg-white rounded-full text-red-600 hover:text-red-700 hover:bg-red-50 shadow-lg transition-all"
+                          onClick={() => handleOpenReject(material.id)}
+                          title="审核驳回"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -225,6 +279,46 @@ const Materials = () => {
             )}
           </div>
         </>
+      )}
+
+      {showRejectModal && currentMaterial && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-800">材料审核驳回</h3>
+              <button onClick={() => setShowRejectModal(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">
+                  材料：<span className="font-medium">{currentMaterial.name}</span>
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">驳回原因 <span className="text-red-500">*</span></label>
+                <textarea 
+                  className="input-field h-32"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="请填写驳回原因，例如：材料不清晰、缺少关键信息、与事故无关等"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button onClick={() => setShowRejectModal(null)} className="btn-secondary">取消</button>
+              <button 
+                onClick={handleReject} 
+                className="btn-accent"
+                disabled={!rejectReason.trim()}
+              >
+                <X className="w-4 h-4 mr-2 inline" />
+                确认驳回
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

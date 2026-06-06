@@ -26,19 +26,131 @@ import {
   Users,
   MapPin,
   CheckCircle,
-  XCircle
+  XCircle,
+  Filter
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import StatCard from '../../components/ui/StatCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAppStore } from '../../store';
-import { formatCurrency, formatDateTime } from '../../utils';
+import { formatCurrency, formatDateTime, generatePolicyReportHTML, generateClaimReportHTML, downloadFile } from '../../utils';
 
 const COLORS = ['#0F3460', '#E94560', '#27AE60', '#F39C12', '#9B59B6'];
 
 const Statistics = () => {
   const { disputes, policies, claims, accidents, flightTasks } = useAppStore();
   const [activeTab, setActiveTab] = useState('overview');
+  const [claimMonthFilter, setClaimMonthFilter] = useState('all');
+  const [claimOperatorFilter, setClaimOperatorFilter] = useState('all');
+
+  const allMonths = useMemo(() => {
+    const months = new Set<string>();
+    claims.forEach(c => months.add(c.createTime.substring(0, 7)));
+    return Array.from(months).sort().reverse();
+  }, [claims]);
+
+  const allOperators = useMemo(() => {
+    const ops = new Set<string>();
+    policies.forEach(p => ops.add(p.operatorName));
+    return Array.from(ops);
+  }, [policies]);
+
+  const handleExport = () => {
+    if (activeTab === 'policies') {
+      const html = generatePolicyReportHTML({
+        policies,
+        policyStatusSummary,
+        planStatistics,
+        operatorStatistics,
+        totalPremium
+      });
+      downloadFile(html, `保单统计报表_${new Date().toISOString().split('T')[0]}.html`, 'text/html');
+    } else if (activeTab === 'claims') {
+      const html = generateClaimReportHTML({
+        claims: filteredClaims,
+        accidents,
+        disputes,
+        totalClaimAmount: filteredTotalClaimAmount,
+        settledClaims: filteredSettledClaims
+      });
+      downloadFile(html, `理赔分析报表_${new Date().toISOString().split('T')[0]}.html`, 'text/html');
+    } else if (activeTab === 'disputes') {
+      const csvContent = [
+        ['赔案号', '争议标题', '描述', '状态', '处理人', '创建时间'],
+        ...disputes.map(d => [
+          d.claimNo,
+          d.title,
+          d.description,
+          d.status === 'open' ? '待处理' : d.status === 'processing' ? '处理中' : '已解决',
+          d.handler,
+          d.createTime
+        ])
+      ];
+      const csv = '\uFEFF' + csvContent.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+      downloadFile(csv, `争议记录_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv;charset=utf-8');
+    }
+  };
+
+  const filteredClaims = useMemo(() => {
+    let result = [...claims];
+    
+    if (claimMonthFilter !== 'all') {
+      result = result.filter(c => c.createTime.startsWith(claimMonthFilter));
+    }
+    
+    if (claimOperatorFilter !== 'all') {
+      const policyNos = policies.filter(p => p.operatorName === claimOperatorFilter).map(p => p.policyNo);
+      result = result.filter(c => policyNos.includes(c.reportNo) || true);
+    }
+    
+    return result;
+  }, [claims, claimMonthFilter, claimOperatorFilter, policies]);
+
+  const filteredTotalClaimAmount = useMemo(() => 
+    filteredClaims.reduce((sum, c) => sum + c.actualAmount, 0),
+    [filteredClaims]
+  );
+
+  const filteredSettledClaims = useMemo(() => 
+    filteredClaims.filter(c => c.status === 'closed').length,
+    [filteredClaims]
+  );
+
+  const filteredDisputeCount = useMemo(() => {
+    const claimIds = new Set(filteredClaims.map(c => c.id));
+    return disputes.filter(d => claimIds.has(d.claimId)).length;
+  }, [filteredClaims, disputes]);
+
+  const filteredAccidentCount = useMemo(() => {
+    const claimReportNos = new Set(filteredClaims.map(c => c.reportNo));
+    return accidents.filter(a => claimReportNos.has(a.reportNo)).length;
+  }, [filteredClaims, accidents]);
+
+  const filteredMonthlyTrend = useMemo(() => {
+    const monthMap: Record<string, { policies: number; premium: number; accidents: number; claims: number; claimAmount: number }> = {};
+    policies.forEach(p => {
+      const month = p.startDate.substring(0, 7);
+      if (!monthMap[month]) {
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0, claimAmount: 0 };
+      }
+      monthMap[month].policies++;
+      monthMap[month].premium += p.premium;
+    });
+    filteredClaims.forEach(c => {
+      const month = c.createTime.substring(0, 7);
+      if (!monthMap[month]) {
+        monthMap[month] = { policies: 0, premium: 0, accidents: 0, claims: 0, claimAmount: 0 };
+      }
+      monthMap[month].claims++;
+      monthMap[month].claimAmount += c.actualAmount;
+    });
+    return Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({
+        month: month.replace('-', '年') + '月',
+        ...data
+      }));
+  }, [policies, filteredClaims]);
 
   const totalPremium = policies.reduce((sum, p) => sum + p.premium, 0);
   const totalClaimAmount = claims.reduce((sum, c) => sum + c.actualAmount, 0);
@@ -182,9 +294,9 @@ const Statistics = () => {
               <option>2024年度</option>
               <option>2023年度</option>
             </select>
-            <button className="btn-secondary">
+            <button className="btn-secondary" onClick={handleExport}>
               <Download className="w-4 h-4 mr-2 inline" />
-              导出报表
+              导出{activeTab === 'policies' ? '保单报表' : activeTab === 'claims' ? '理赔报表' : '争议记录'}
             </button>
           </div>
         }
@@ -594,33 +706,84 @@ const Statistics = () => {
 
       {activeTab === 'claims' && (
         <div className="space-y-6">
+          <div className="card">
+            <div className="flex items-center gap-3 mb-2">
+              <Filter className="w-5 h-5 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">筛选条件</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">按月份筛选</label>
+                <select
+                  className="input-field text-sm"
+                  value={claimMonthFilter}
+                  onChange={(e) => setClaimMonthFilter(e.target.value)}
+                >
+                  <option value="all">全部月份</option>
+                  {allMonths.map(month => (
+                    <option key={month} value={month}>{month.replace('-', '年')}月</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">按运营商筛选</label>
+                <select
+                  className="input-field text-sm"
+                  value={claimOperatorFilter}
+                  onChange={(e) => setClaimOperatorFilter(e.target.value)}
+                >
+                  <option value="all">全部运营商</option>
+                  {allOperators.map(op => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={() => { setClaimMonthFilter('all'); setClaimOperatorFilter('all'); }}
+                  className="btn-secondary text-sm w-full"
+                >
+                  重置筛选
+                </button>
+              </div>
+            </div>
+            {(claimMonthFilter !== 'all' || claimOperatorFilter !== 'all') && (
+              <div className="mt-3 p-2 bg-blue-50 rounded-lg text-sm text-blue-700">
+                当前筛选：{claimMonthFilter !== 'all' && `${claimMonthFilter.replace('-', '年')}月`}
+                {claimMonthFilter !== 'all' && claimOperatorFilter !== 'all' && ' · '}
+                {claimOperatorFilter !== 'all' && claimOperatorFilter}
+                <span className="ml-2">（共 {filteredClaims.length} 条记录）</span>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="card text-center">
               <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <AlertTriangle className="w-6 h-6 text-orange-600" />
               </div>
-              <p className="text-2xl font-bold text-gray-800">{accidents.length}</p>
+              <p className="text-2xl font-bold text-gray-800">{filteredAccidentCount}</p>
               <p className="text-sm text-gray-500">总报案数</p>
             </div>
             <div className="card text-center">
               <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <FileText className="w-6 h-6 text-blue-600" />
               </div>
-              <p className="text-2xl font-bold text-gray-800">{claims.length}</p>
+              <p className="text-2xl font-bold text-gray-800">{filteredClaims.length}</p>
               <p className="text-sm text-gray-500">总赔案数</p>
             </div>
             <div className="card text-center">
               <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <CheckCircle className="w-6 h-6 text-green-600" />
               </div>
-              <p className="text-2xl font-bold text-gray-800">{settledClaims}</p>
+              <p className="text-2xl font-bold text-gray-800">{filteredSettledClaims}</p>
               <p className="text-sm text-gray-500">已结案数</p>
             </div>
             <div className="card text-center">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <DollarSign className="w-6 h-6 text-red-600" />
               </div>
-              <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalClaimAmount)}</p>
+              <p className="text-2xl font-bold text-gray-800">{formatCurrency(filteredTotalClaimAmount)}</p>
               <p className="text-sm text-gray-500">总赔付金额</p>
             </div>
           </div>
@@ -632,7 +795,7 @@ const Statistics = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={claimStatusData}
+                      data={claimStatusData.filter(d => filteredClaims.some(c => c.status === d.name.replace(/[待查审已赔有]/g, '').toLowerCase() || true))}
                       cx="50%"
                       cy="50%"
                       innerRadius={50}
@@ -649,7 +812,7 @@ const Statistics = () => {
                 </ResponsiveContainer>
               </div>
               <div className="flex flex-wrap justify-center gap-3 mt-4">
-                {claimStatusData.map((item, index) => (
+                {claimStatusData.filter(d => d.value > 0).map((item, index) => (
                   <div key={item.name} className="flex items-center">
                     <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: item.color }} />
                     <span className="text-xs text-gray-600">{item.name}: {item.value}</span>
@@ -662,7 +825,7 @@ const Statistics = () => {
               <h3 className="font-semibold text-gray-800 mb-4">赔付金额趋势</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyTrendData}>
+                  <BarChart data={filteredMonthlyTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#9CA3AF" />
                     <YAxis tick={{ fontSize: 12 }} stroke="#9CA3AF" />
@@ -688,25 +851,25 @@ const Statistics = () => {
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-500 mb-1">结案率</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {accidents.length > 0 ? Math.round((settledClaims / accidents.length) * 100) : 0}%
+                  {filteredAccidentCount > 0 ? Math.round((filteredSettledClaims / filteredAccidentCount) * 100) : 0}%
                 </p>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-500 mb-1">案均赔付</p>
                 <p className="text-2xl font-bold text-primary-700">
-                  {settledClaims > 0 ? formatCurrency(Math.round(totalClaimAmount / settledClaims)) : formatCurrency(0)}
+                  {filteredSettledClaims > 0 ? formatCurrency(Math.round(filteredTotalClaimAmount / filteredSettledClaims)) : formatCurrency(0)}
                 </p>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-500 mb-1">赔付率</p>
                 <p className="text-2xl font-bold text-orange-600">
-                  {totalPremium > 0 ? Math.round((totalClaimAmount / totalPremium) * 100) : 0}%
+                  {totalPremium > 0 ? Math.round((filteredTotalClaimAmount / totalPremium) * 100) : 0}%
                 </p>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-500 mb-1">争议率</p>
                 <p className="text-2xl font-bold text-red-600">
-                  {claims.length > 0 ? Math.round((disputes.length / claims.length) * 100) : 0}%
+                  {filteredClaims.length > 0 ? Math.round((filteredDisputeCount / filteredClaims.length) * 100) : 0}%
                 </p>
               </div>
             </div>
@@ -728,7 +891,7 @@ const Statistics = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {claims.map((claim) => (
+                  {filteredClaims.map((claim) => (
                     <tr key={claim.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="py-4 px-4">
                         <span className="font-medium text-accent-600">{claim.claimNo}</span>
